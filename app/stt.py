@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import tempfile
+import wave
 from pathlib import Path
 
 import numpy as np
-
-from app.audio import AudioRecorder
 
 try:
     from faster_whisper import WhisperModel
@@ -33,7 +32,7 @@ class WhisperTranscriber:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             path = Path(tmp.name)
         try:
-            AudioRecorder(sample_rate=sample_rate).save_wav(audio, path)
+            self._save_wav(audio, path, sample_rate=sample_rate)
             kwargs = {}
             if self.language_mode.lower() != "auto":
                 kwargs["language"] = self.language_mode
@@ -41,3 +40,13 @@ class WhisperTranscriber:
             return "".join(segment.text for segment in segments).strip()
         finally:
             path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _save_wav(audio: np.ndarray, path: Path, sample_rate: int) -> None:
+        clipped = np.clip(audio, -1.0, 1.0)
+        pcm16 = (clipped * 32767).astype(np.int16)
+        with wave.open(str(path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(pcm16.tobytes())

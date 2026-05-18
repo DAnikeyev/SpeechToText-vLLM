@@ -137,11 +137,11 @@ class DictationApp:
 
 
 def _install_signal_handlers(app: DictationApp) -> None:
-    def _handler(signum, frame) -> None:  # noqa: ARG001
+    def _signal_handler(signum, frame) -> None:  # noqa: ARG001
         app.shutdown()
 
-    signal.signal(signal.SIGINT, _handler)
-    signal.signal(signal.SIGTERM, _handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
 
 def parse_args() -> argparse.Namespace:
