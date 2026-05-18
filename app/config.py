@@ -18,6 +18,7 @@ class AppConfig:
     vad_enabled: bool = True
     temperature: float = 0.1
     max_tokens: int = 512
+    silence_rms_threshold: float = 0.005
     debug_save_wav: bool = False
     debug_wav_dir: str = "debug_recordings"
 

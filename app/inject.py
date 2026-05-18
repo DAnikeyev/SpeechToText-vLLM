@@ -37,7 +37,8 @@ def _send_input_char(char: str) -> None:
     inputs = (INPUT * 2)(press, release)
     sent = ctypes.windll.user32.SendInput(2, inputs, ctypes.sizeof(INPUT))
     if sent != 2:
-        raise RuntimeError(f"Failed to inject character via SendInput: {char!r}") from ctypes.WinError()
+        error = ctypes.WinError()
+        raise RuntimeError(f"Failed to inject character via SendInput: {char!r}") from error
 
 
 def inject_text(text: str) -> None:

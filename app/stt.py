@@ -11,6 +11,10 @@ try:
 except Exception:  # pragma: no cover - optional at import time
     WhisperModel = None
 
+AUDIO_MIN = -1.0
+AUDIO_MAX = 1.0
+PCM16_MAX = 32767
+
 
 class WhisperTranscriber:
     def __init__(self, model_name: str = "medium", language_mode: str = "auto") -> None:
@@ -43,8 +47,8 @@ class WhisperTranscriber:
 
     @staticmethod
     def _save_wav(audio: np.ndarray, path: Path, sample_rate: int) -> None:
-        clipped = np.clip(audio, -1.0, 1.0)
-        pcm16 = (clipped * 32767).astype(np.int16)
+        clipped = np.clip(audio, AUDIO_MIN, AUDIO_MAX)
+        pcm16 = (clipped * PCM16_MAX).astype(np.int16)
         with wave.open(str(path), "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)

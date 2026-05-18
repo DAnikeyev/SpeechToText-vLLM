@@ -80,7 +80,7 @@ class DictationApp:
             self.logger.info("Ignored: hold shorter than %.2fs", self.config.min_hold_seconds)
             return
 
-        if audio.size == 0 or rms(audio) < 0.005:
+        if audio.size == 0 or rms(audio) < self.config.silence_rms_threshold:
             self.logger.info("Ignored: empty/silent audio")
             return
 
