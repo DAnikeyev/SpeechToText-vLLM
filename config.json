@@ -1,0 +1,15 @@
+{
+  "vllm_url": "http://127.0.0.1:8000/v1",
+  "model_name": "Qwen/Qwen3.5-9B-Instruct",
+  "microphone_device": null,
+  "min_hold_seconds": 2.0,
+  "record_start_delay_seconds": 0.2,
+  "whisper_model": "medium",
+  "language_mode": "auto",
+  "vad_enabled": true,
+  "temperature": 0.1,
+  "max_tokens": 512,
+  "silence_rms_threshold": 0.005,
+  "debug_save_wav": false,
+  "debug_wav_dir": "debug_recordings"
+}
