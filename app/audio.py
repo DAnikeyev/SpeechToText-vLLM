@@ -52,7 +52,7 @@ class AudioRecorder:
             return np.zeros((0,), dtype=np.float32)
         return np.concatenate(self._chunks, axis=0).astype(np.float32, copy=False)
 
-    def _callback(self, indata, frames, time_info, status) -> None:  # noqa: ARG002
+    def _callback(self, indata, _frames, _time_info, _status) -> None:
         self._chunks.append(indata[:, 0].copy())
 
     @staticmethod

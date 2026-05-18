@@ -5,7 +5,7 @@ class AppUI:
     """Optional tray/settings UI extension point."""
 
     def start(self) -> None:
-        return
+        pass
 
     def stop(self) -> None:
-        return
+        pass

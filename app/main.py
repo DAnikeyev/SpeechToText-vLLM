@@ -137,7 +137,7 @@ class DictationApp:
 
 
 def _install_signal_handlers(app: DictationApp) -> None:
-    def _signal_handler(signum, frame) -> None:  # noqa: ARG001
+    def _signal_handler(_signum, _frame) -> None:
         app.shutdown()
 
     signal.signal(signal.SIGINT, _signal_handler)
