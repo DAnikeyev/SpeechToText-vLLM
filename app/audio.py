@@ -52,8 +52,8 @@ class AudioRecorder:
             return np.zeros((0,), dtype=np.float32)
         return np.concatenate(self._chunks, axis=0).astype(np.float32, copy=False)
 
-    def _callback(self, indata, _frames, _time_info, _status) -> None:
-        self._chunks.append(indata[:, 0].copy())
+    def _callback(self, audio_data, _frames, _time_info, _status) -> None:
+        self._chunks.append(audio_data[:, 0].copy())
 
     @staticmethod
     def to_pcm16(audio: np.ndarray) -> np.ndarray:
