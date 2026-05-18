@@ -37,6 +37,9 @@ class VoiceActivityTrimmer:
         if voiced_count == 0 or voiced_count / len(voiced_flags) < 0.1:
             return np.zeros((0,), dtype=np.int16)
 
-        first = next(i for i, flag in enumerate(voiced_flags) if flag)
-        last = len(voiced_flags) - 1 - next(i for i, flag in enumerate(reversed(voiced_flags)) if flag)
+        voiced_indices = [i for i, flag in enumerate(voiced_flags) if flag]
+        if not voiced_indices:
+            return np.zeros((0,), dtype=np.int16)
+        first = voiced_indices[0]
+        last = voiced_indices[-1]
         return np.concatenate(frames[first : last + 1])

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 import unittest
 
 from app.hotkeys import CtrlHoldTracker
@@ -31,9 +30,9 @@ class HotkeyTrackerTests(unittest.TestCase):
             min_hold_seconds=2.0,
             start_delay_seconds=0.01,
         )
-        t0 = time.monotonic()
+        t0 = 100.0
         tracker.handle_ctrl_event("left ctrl", "down", t0)
-        time.sleep(0.03)
+        tracker._maybe_start_recording()
         tracker.handle_ctrl_event("left ctrl", "up", t0 + 2.2)
 
         self.assertEqual(len(starts), 1)

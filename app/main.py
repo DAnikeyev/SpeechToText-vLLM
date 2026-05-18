@@ -85,7 +85,7 @@ class DictationApp:
             return
 
         if self.config.debug_save_wav:
-            stamp = time.strftime("%Y%m%d-%H%M%S")
+            stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
             debug_path = self.base_dir / self.config.debug_wav_dir / f"capture-{stamp}.wav"
             self.recorder.save_wav(audio, debug_path)
 
@@ -137,7 +137,7 @@ class DictationApp:
 
 
 def _install_signal_handlers(app: DictationApp) -> None:
-    def _signal_handler(_signum, _frame) -> None:
+    def _signal_handler(signum, frame) -> None:  # noqa: ARG001
         app.shutdown()
 
     signal.signal(signal.SIGINT, _signal_handler)
