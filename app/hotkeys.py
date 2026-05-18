@@ -4,6 +4,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 try:
     import keyboard
@@ -24,7 +25,7 @@ class CtrlHoldTracker:
     _start_time: float | None = None
     _start_timer: threading.Timer | None = None
     _recording_started: bool = False
-    _hook = None
+    _hook: Any = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def start(self) -> None:

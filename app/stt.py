@@ -30,7 +30,6 @@ class WhisperTranscriber:
         if audio.size == 0:
             return ""
         self.load()
-        pcm16 = AudioRecorder.to_pcm16(audio)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             path = Path(tmp.name)
         try:
