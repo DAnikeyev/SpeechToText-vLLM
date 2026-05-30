@@ -1,0 +1,101 @@
+name: Build and Test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.11'
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install macOS system dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install portaudio
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: python -m pip install -r requirements/windows.txt
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: python -m pip install -r requirements/macos.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: test
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: DictationAssistant-windows
+            artifact_path: dist/windows/DictationAssistant.exe
+            build_shell: pwsh
+            build_command: ./scripts/build_windows.ps1
+          - os: macos-latest
+            artifact_name: DictationAssistant-macos
+            artifact_path: dist/macos/DictationAssistant.app
+            build_shell: bash
+            build_command: chmod +x ./scripts/build_macos.sh && ./scripts/build_macos.sh
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install macOS system dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install portaudio
+
+      - name: Build distributable
+        shell: ${{ matrix.build_shell }}
+        run: ${{ matrix.build_command }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+

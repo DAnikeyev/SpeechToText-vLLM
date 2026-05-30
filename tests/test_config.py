@@ -15,7 +15,8 @@ class ConfigTests(unittest.TestCase):
             cfg = load_config(config_path)
             self.assertIsInstance(cfg, AppConfig)
             self.assertTrue(config_path.exists())
-            self.assertEqual(cfg.whisper_model, "medium")
+            self.assertEqual(cfg.whisper_model, "small")
+            self.assertEqual(cfg.llm_availability_check_interval_seconds, 60.0)
 
     def test_load_config_ignores_unknown_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -28,10 +29,11 @@ class ConfigTests(unittest.TestCase):
     def test_save_config_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "config.json"
-            cfg = AppConfig(model_name="local-model")
+            cfg = AppConfig(model_name="local-model", llm_availability_check_interval_seconds=90.0)
             save_config(config_path, cfg)
             loaded = load_config(config_path)
             self.assertEqual(loaded.model_name, "local-model")
+            self.assertEqual(loaded.llm_availability_check_interval_seconds, 90.0)
 
 
 if __name__ == "__main__":
