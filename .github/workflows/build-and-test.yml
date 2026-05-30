@@ -88,9 +88,15 @@ jobs:
           brew update
           brew install portaudio
 
-      - name: Build distributable
-        shell: ${{ matrix.build_shell }}
-        run: ${{ matrix.build_command }}
+      - name: Build distributable (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build_windows.ps1
+
+      - name: Build distributable (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: chmod +x ./scripts/build_macos.sh && ./scripts/build_macos.sh
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
