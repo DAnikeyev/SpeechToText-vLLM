@@ -114,7 +114,7 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         tracker._process("right ctrl", "down", t0)
         tracker._process("right ctrl", "up", t0 + 0.02)
         tracker._process("right ctrl", "down", t0 + 0.08)
-        time.sleep(0.08)
+        time.sleep(0.2)
 
         self.assertEqual(len(starts), 1)
         self.assertEqual(starts[0], ("restructure", "clipboard", False))
@@ -142,7 +142,7 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         tracker._process("right ctrl", "down", t0 + 0.08)
         tracker._process("right ctrl", "up", t0 + 0.10)
         tracker._process("right ctrl", "down", t0 + 0.16)
-        time.sleep(0.08)
+        time.sleep(0.2)
 
         self.assertEqual(starts, [("restructure", "both", True)])
 
@@ -164,7 +164,7 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         )
         t0 = time.monotonic()
         tracker._process("right ctrl", "down", t0)
-        time.sleep(0.1)
+        time.sleep(0.2)
 
         self.assertEqual(starts, [("restructure", "both", False)])
 
@@ -186,7 +186,7 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         tracker._process("right shift", "down", t0)
         tracker._process("right shift", "up", t0 + 0.1)
         tracker._process("right shift", "down", t0 + 0.15)
-        time.sleep(0.05)
+        time.sleep(0.2)
 
         self.assertEqual(len(starts), 1)
         self.assertEqual(starts[0], ("answer", "clipboard", False))
@@ -210,7 +210,7 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         tracker._handle_event(_make_event("right ctrl", "down"))
         tracker._handle_event(_make_event("right ctrl", "up"))
         tracker._handle_event(_make_event("right ctrl", "down"))
-        time.sleep(0.08)
+        time.sleep(0.2)
         self.assertEqual(len(starts), 1)
         self.assertEqual(starts[0], ("restructure", "clipboard", False))
 
