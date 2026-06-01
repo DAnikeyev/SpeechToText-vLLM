@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 import wave
 from pathlib import Path
 
@@ -140,8 +141,12 @@ class WhisperTranscriber:
             self.last_language = language
             if self.last_language is not None:
                 kwargs["language"] = self.last_language
+            start = time.monotonic()
             segments, _ = self.model.transcribe(str(path), **kwargs)
-            return "".join(segment.text for segment in segments).strip()
+            elapsed = time.monotonic() - start
+            text = "".join(segment.text for segment in segments).strip()
+            self.logger.info("Text recognition took %.3f seconds", elapsed)
+            return text
         finally:
             path.unlink(missing_ok=True)
 
