@@ -62,6 +62,21 @@ class TrayAppRunTests(unittest.TestCase):
         app.hotkeys.stop.assert_called_once_with()
         app.shutdown.assert_called_once_with()
 
+    def test_run_keeps_tray_alive_when_hotkeys_fail_to_start(self) -> None:
+        tray_app, app = self._make_tray_app()
+        app.hotkeys.start.side_effect = RuntimeError("hotkey init failed")
+
+        with patch("app.tray._tint_icon", return_value="icon") as tint_icon, patch("app.tray.pystray.Icon") as icon_cls:
+            icon = icon_cls.return_value
+            TrayApp.run(tray_app)
+
+        self.assertTrue(tray_app._paused)
+        app.logger.exception.assert_called_once()
+        tint_icon.assert_called_once_with(paused=True)
+        app.hotkeys.stop.assert_not_called()
+        icon.run.assert_called_once_with()
+        app.shutdown.assert_called_once_with()
+
 
 class TrayIconTests(unittest.TestCase):
     def test_fit_icon_to_canvas_reduces_padding(self) -> None:

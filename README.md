@@ -88,7 +88,29 @@ py -3.11 -m app.main --config config.json
 
 ```bash
 python3 -m pip install -r requirements/macos.txt
-python3 -m app.main --config config.json
+python3 -m app.main
+```
+
+Recommended for the first macOS run:
+
+1. Start the app from the repository root with `python3 -m app.main`.
+2. When macOS prompts, allow **Microphone** access.
+3. In **System Settings -> Privacy & Security**, enable:
+   - **Accessibility** for text insertion / UI scripting
+   - **Input Monitoring** if hotkeys do not register in your environment
+4. Fully quit the app and launch it again after changing permissions.
+5. Look for the microphone icon in the **menu bar**:
+   - **green** = active
+   - **red** = paused or hotkeys failed to start
+
+Notes:
+
+- You usually do **not** need `--config config.json` on macOS anymore. If no config path is provided, the app uses a per-user config file at `~/Library/Application Support/SpeechToText-vLLM/config.json`.
+- Terminal logs should appear immediately while running from source. If hotkeys still do not fire, open **Recent Logs** from the menu bar icon to check whether the app started in paused mode because macOS blocked global input access.
+- If you do want to use a custom config file, pass an absolute path, for example:
+
+```bash
+python3 -m app.main --config "$PWD/config.json"
 ```
 
 ## Hosted provider quick start (OpenRouter default)
@@ -118,7 +140,7 @@ py -3.11 -m app.main --config config.json
 
 ```bash
 export SPEECHTOTEXT_VLLM_API_KEY="your-openrouter-key"
-python3 -m app.main --config config.json
+python3 -m app.main
 ```
 
 Notes:
@@ -245,6 +267,8 @@ You will typically need to grant:
 - **Microphone** access
 - **Accessibility** access for paste injection and UI scripting
 - possibly **Input Monitoring** depending on the environment/hotkey behavior
+
+If you change any of these permissions while the app is already running, quit it completely and start it again so macOS re-applies the permission state to the process.
 
 macOS packaging should be built on macOS. If you distribute outside your own machine, you may eventually want code signing and notarization.
 

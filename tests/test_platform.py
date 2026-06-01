@@ -67,9 +67,13 @@ class MacOSPlatformTests(unittest.TestCase):
     class _FakePynputKeyboard:
         class Key:
             ctrl_r = object()
+            ctrl = object()
             cmd_r = object()
+            cmd = object()
             shift_r = object()
+            shift = object()
             backspace = object()
+            delete = object()
 
         def __init__(self) -> None:
             self.listeners: list[MacOSPlatformTests._FakeListener] = []
@@ -119,6 +123,27 @@ class MacOSPlatformTests(unittest.TestCase):
             received,
             [
                 HotkeyEvent(name="right ctrl", event_type="down"),
+                HotkeyEvent(name="right shift", event_type="up"),
+                HotkeyEvent(name="backspace", event_type="down"),
+            ],
+        )
+
+    def test_macos_hotkey_backend_maps_generic_modifier_variants(self) -> None:
+        fake_keyboard = self._FakePynputKeyboard()
+        backend = macos_platform.PynputHotkeyBackend(keyboard_module=fake_keyboard)
+        received: list[HotkeyEvent] = []
+
+        backend.start(received.append)
+        listener = fake_keyboard.listeners[0]
+        listener.on_press(fake_keyboard.Key.cmd)
+        listener.on_release(fake_keyboard.Key.shift)
+        listener.on_press(fake_keyboard.Key.delete)
+        backend.stop()
+
+        self.assertEqual(
+            received,
+            [
+                HotkeyEvent(name="right cmd", event_type="down"),
                 HotkeyEvent(name="right shift", event_type="up"),
                 HotkeyEvent(name="backspace", event_type="down"),
             ],
@@ -185,6 +210,7 @@ class WindowsPlatformTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 from app.config import AppConfig
-from app.main import DictationApp, DictationJob
+from app.main import DictationApp, DictationJob, default_config_path
 
 
 class DictationAppInitTests(unittest.TestCase):
@@ -326,6 +326,23 @@ class DictationAppOutputTests(unittest.TestCase):
         self.assertEqual(app.hotkeys.first_press_max_seconds, 0.15)
         self.assertIsNone(app._get_llm_available())
         self.assertTrue(app._llm_recheck_event.is_set())
+
+
+class MainConfigPathTests(unittest.TestCase):
+    def test_default_config_path_on_macos_uses_application_support(self) -> None:
+        with patch("app.main.sys.platform", "darwin"), patch("app.main.Path.home", return_value=Path("/Users/tester")):
+            path = default_config_path()
+
+        self.assertEqual(
+            path,
+            Path("/Users/tester/Library/Application Support/SpeechToText-vLLM/config.json"),
+        )
+
+    def test_default_config_path_on_windows_uses_appdata(self) -> None:
+        with patch("app.main.sys.platform", "win32"), patch("app.main.os.getenv", return_value=r"C:\Users\tester\AppData\Roaming"):
+            path = default_config_path()
+
+        self.assertEqual(path, Path(r"C:\Users\tester\AppData\Roaming\SpeechToText-vLLM\config.json"))
 
 
 if __name__ == "__main__":

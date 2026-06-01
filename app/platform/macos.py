@@ -57,12 +57,24 @@ class PynputHotkeyBackend:
         key_enum = getattr(keyboard_module, "Key", None)
         if key_enum is None:
             return None
-        mapping = {
-            key_enum.ctrl_r: "right ctrl",
-            key_enum.cmd_r: "right cmd",
-            key_enum.shift_r: "right shift",
-            key_enum.backspace: "backspace",
-        }
+        mapping = {}
+
+        def _map(attr: str, normalized_name: str) -> None:
+            raw_key = getattr(key_enum, attr, None)
+            if raw_key is not None:
+                mapping[raw_key] = normalized_name
+
+        # Some macOS layouts/reporting paths emit generic modifiers (cmd/shift/ctrl)
+        # instead of side-specific variants, so we normalize both to the configured keys.
+        _map("ctrl_r", "right ctrl")
+        _map("ctrl", "right ctrl")
+        _map("cmd_r", "right cmd")
+        _map("cmd", "right cmd")
+        _map("shift_r", "right shift")
+        _map("shift", "right shift")
+        _map("backspace", "backspace")
+        _map("delete", "backspace")
+
         return mapping.get(key)
 
 
@@ -109,6 +121,7 @@ SERVICES = PlatformServices(
     key_modes={"right cmd": "restructure", "right shift": "answer"},
     triple_press_raw_keys={"right cmd"},
 )
+
 
 
 

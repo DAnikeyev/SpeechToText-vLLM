@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import queue
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -443,17 +445,29 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Local push-to-talk dictation assistant (system tray app)")
     parser.add_argument(
         "--config",
-        default="config.json",
-        help="Path to JSON config file",
+        default=None,
+        help="Path to JSON config file (defaults to a per-user application config path)",
     )
     return parser.parse_args()
 
 
+def default_config_path() -> Path:
+    app_dir_name = "SpeechToText-vLLM"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / app_dir_name / "config.json"
+    if sys.platform == "win32":
+        appdata = os.getenv("APPDATA")
+        root = Path(appdata) if appdata else (Path.home() / "AppData" / "Roaming")
+        return root / app_dir_name / "config.json"
+    return Path.cwd() / "config.json"
+
+
 def main() -> None:
     args = parse_args()
-    config_path = Path(args.config).resolve()
+    config_path = Path(args.config).expanduser().resolve() if args.config else default_config_path().resolve()
 
     logger = setup_logging()
+    logger.info("Using config file: %s", config_path)
     logger.info("Launching tray UI; look for the microphone icon in the system tray or menu bar area.")
 
     from app.tray import TrayApp

@@ -158,11 +158,20 @@ class TrayApp:
         self._app.logger.info("Starting dictation assistant (tray mode)")
         self._app.worker.start()
         self._app.llm_monitor.start()
-        self._app.hotkeys.start()
+        hotkeys_started = False
+        try:
+            self._app.hotkeys.start()
+            hotkeys_started = True
+        except Exception as exc:
+            self._paused = True
+            self._app.logger.exception(
+                "Failed to start global hotkeys; running in paused mode so the app stays open: %s",
+                exc,
+            )
         self._start_config_reload_watcher()
         icon = pystray.Icon(
             "dictation",
-            icon=_tint_icon(paused=False),
+            icon=_tint_icon(paused=self._paused),
             title="Dictation Assistant",
             menu=self._build_menu(),
         )
@@ -171,7 +180,8 @@ class TrayApp:
             icon.run()
         finally:
             self._config_reload_stop.set()
-            self._app.hotkeys.stop()
+            if hotkeys_started:
+                self._app.hotkeys.stop()
             self._app.shutdown()
 
     def _get_config_mtime_ns(self) -> int | None:
@@ -582,8 +592,12 @@ class TrayApp:
             self._app.hotkeys.stop()
             self._app.logger.info("Paused")
         else:
-            self._app.hotkeys.start()
-            self._app.logger.info("Resumed")
+            try:
+                self._app.hotkeys.start()
+                self._app.logger.info("Resumed")
+            except Exception as exc:
+                self._paused = True
+                self._app.logger.exception("Failed to resume hotkeys: %s", exc)
         self._update_icon_image()
         self._refresh_menu()
 
