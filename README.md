@@ -101,7 +101,7 @@ Default `config.json` values already target OpenRouter. The only thing you usual
 {
   "vllm_url": "https://openrouter.ai/api/v1",
   "llm_api_key": null,
-  "model_name": "openai/gpt-4o-mini",
+  "model_name": "openai/gpt-oss-120b:free",
   "llm_strict_model_name_match": true,
   "llm_extra_body": null
 }
@@ -263,7 +263,7 @@ If neither is set, the app falls back to the local placeholder key `local`, whic
 |---|---|---|
 | `vllm_url` | `https://openrouter.ai/api/v1` | OpenAI-compatible LLM endpoint |
 | `llm_api_key` | `null` | Optional bearer token for hosted OpenAI-compatible providers; can also come from environment |
-| `model_name` | `openai/gpt-4o-mini` | Model name for the LLM endpoint |
+| `model_name` | `openai/gpt-oss-120b:free` | Model name for the LLM endpoint |
 | `microphone_device` | `null` | Device index or `null` for default |
 | `whisper_model` | `small` | Faster-Whisper model size |
 | `whisper_device` | `auto` | Whisper runtime device selection |

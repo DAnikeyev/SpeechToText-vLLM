@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import queue
 import threading
 import unittest
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
+from app.config import AppConfig
 from app.main import DictationApp, DictationJob
 
 
@@ -74,10 +76,17 @@ class DictationAppOutputTests(unittest.TestCase):
     def _make_app(self) -> DictationApp:
         app = DictationApp.__new__(DictationApp)
         app.logger = MagicMock()
-        app.config = SimpleNamespace(
+        app.config = AppConfig(
             vllm_url="http://127.0.0.1:8000/v1",
+            model_name="base-model",
             llm_availability_check_interval_seconds=60.0,
             vad_enabled=False,
+            microphone_device=None,
+            language_mode="auto",
+            whisper_model="small",
+            whisper_device="auto",
+            whisper_compute_type="float16",
+            llm_api_key=None,
         )
         app.cleaner = MagicMock()
         app.transcriber = MagicMock()
@@ -89,8 +98,15 @@ class DictationAppOutputTests(unittest.TestCase):
         app._llm_available = True
         app.job_queue = queue.Queue()
         app._cancel_lock = threading.Lock()
+        app._config_lock = threading.RLock()
         app._cancel_generation = 0
         app._processing_generation = None
+        app.hotkeys = SimpleNamespace(
+            min_hold_seconds=2.0,
+            start_delay_seconds=0.2,
+            double_press_window_seconds=0.5,
+            first_press_max_seconds=0.3,
+        )
         return app
 
     def test_deliver_result_inserts_into_active_field(self) -> None:
@@ -260,6 +276,54 @@ class DictationAppOutputTests(unittest.TestCase):
 
         self.assertEqual(app.config.vllm_url, "http://127.0.0.1:8512/v1")
         self.assertEqual(app.cleaner.client.base_url, "http://127.0.0.1:8512/v1")
+        self.assertIsNone(app._get_llm_available())
+        self.assertTrue(app._llm_recheck_event.is_set())
+
+    def test_apply_runtime_config_updates_collaborators_without_relaunch(self) -> None:
+        app = self._make_app()
+        new_config = copy.deepcopy(app.config)
+        new_config.microphone_device = 3
+        new_config.language_mode = "ru"
+        new_config.whisper_model = "medium"
+        new_config.whisper_device = "cpu"
+        new_config.whisper_compute_type = "int8"
+        new_config.vllm_url = "https://example.test/v1"
+        new_config.llm_api_key = "reloaded-key"
+        new_config.model_name = "reloaded-model"
+        new_config.temperature = 0.4
+        new_config.max_tokens = 1024
+        new_config.llm_timeout_seconds = 12.0
+        new_config.llm_extra_body = {"foo": "bar"}
+        new_config.llm_strict_model_name_match = False
+        new_config.min_hold_seconds = 1.2
+        new_config.record_start_delay_seconds = 0.05
+        new_config.double_press_window_seconds = 0.7
+        new_config.first_press_max_seconds = 0.15
+
+        with patch("app.main.WhisperTranscriber", return_value=MagicMock()) as transcriber_cls, patch(
+            "app.main.TranscriptCleaner", return_value=MagicMock()
+        ) as cleaner_cls:
+            app.apply_runtime_config(new_config)
+
+        self.assertIs(app.config, new_config)
+        self.assertEqual(app.recorder.device, 3)
+        transcriber_cls.assert_called_once_with("medium", "ru", "cpu", "int8")
+        cleaner_cls.assert_called_once_with(
+            base_url="https://example.test/v1",
+            api_key="reloaded-key",
+            model_name="reloaded-model",
+            restructure_prompt=new_config.restructure_prompt,
+            answer_prompt=new_config.answer_prompt,
+            temperature=0.4,
+            max_tokens=1024,
+            timeout_seconds=12.0,
+            extra_body={"foo": "bar"},
+            strict_model_name_match=False,
+        )
+        self.assertEqual(app.hotkeys.min_hold_seconds, 1.2)
+        self.assertEqual(app.hotkeys.start_delay_seconds, 0.05)
+        self.assertEqual(app.hotkeys.double_press_window_seconds, 0.7)
+        self.assertEqual(app.hotkeys.first_press_max_seconds, 0.15)
         self.assertIsNone(app._get_llm_available())
         self.assertTrue(app._llm_recheck_event.is_set())
 

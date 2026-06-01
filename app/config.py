@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -40,7 +42,7 @@ Rules:
 class AppConfig:
     vllm_url: str = "https://openrouter.ai/api/v1"
     llm_api_key: str | None = None
-    model_name: str = "openai/gpt-4o-mini"
+    model_name: str = "openai/gpt-oss-120b:free"
     llm_availability_check_interval_seconds: float = 60.0
     restructure_prompt: str = DEFAULT_RESTRUCTURE_PROMPT
     answer_prompt: str = DEFAULT_ANSWER_PROMPT
@@ -91,6 +93,14 @@ def load_config(path: str | Path) -> AppConfig:
 def save_config(path: str | Path, config: AppConfig) -> None:
     config_path = Path(path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    with config_path.open("w", encoding="utf-8") as fp:
-        json.dump(config.to_dict(), fp, indent=2, ensure_ascii=False)
-        fp.write("\n")
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{config_path.stem}-", suffix=".tmp", dir=config_path.parent)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fp:
+            json.dump(config.to_dict(), fp, indent=2, ensure_ascii=False)
+            fp.write("\n")
+            fp.flush()
+            os.fsync(fp.fileno())
+        os.replace(tmp_path, config_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)

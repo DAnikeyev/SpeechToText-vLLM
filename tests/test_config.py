@@ -17,7 +17,7 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(config_path.exists())
             self.assertEqual(cfg.vllm_url, "https://openrouter.ai/api/v1")
             self.assertIsNone(cfg.llm_api_key)
-            self.assertEqual(cfg.model_name, "openai/gpt-4o-mini")
+            self.assertEqual(cfg.model_name, "openai/gpt-oss-120b:free")
             self.assertTrue(cfg.llm_strict_model_name_match)
             self.assertIsNone(cfg.llm_extra_body)
             self.assertEqual(cfg.whisper_model, "small")

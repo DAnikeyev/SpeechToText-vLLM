@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import threading
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import scrolledtext, simpledialog
 
@@ -53,6 +56,7 @@ Hotkeys
 
 LLM defaults
 - Hosted default: OpenRouter at https://openrouter.ai/api/v1
+- Default hosted model: openai/gpt-oss-120b:free
 - API key: set llm_api_key in config.json or use SPEECHTOTEXT_VLLM_API_KEY
 - Compatibility presets: Hosted OpenAI-compatible, Ollama, and vLLM / Qwen
 
@@ -146,12 +150,16 @@ class TrayApp:
         self._ctrl_enabled = True
         self._shift_enabled = True
         self._icon: pystray.Icon | None = None
+        self._config_reload_stop = threading.Event()
+        self._config_reload_thread: threading.Thread | None = None
+        self._config_mtime_ns = self._get_config_mtime_ns()
 
     def run(self) -> None:
         self._app.logger.info("Starting dictation assistant (tray mode)")
         self._app.worker.start()
         self._app.llm_monitor.start()
         self._app.hotkeys.start()
+        self._start_config_reload_watcher()
         icon = pystray.Icon(
             "dictation",
             icon=_tint_icon(paused=False),
@@ -162,8 +170,55 @@ class TrayApp:
         try:
             icon.run()
         finally:
+            self._config_reload_stop.set()
             self._app.hotkeys.stop()
             self._app.shutdown()
+
+    def _get_config_mtime_ns(self) -> int | None:
+        try:
+            return self._config_path.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def _start_config_reload_watcher(self) -> None:
+        if self._config_reload_thread is not None and self._config_reload_thread.is_alive():
+            return
+        self._config_reload_stop.clear()
+        self._config_reload_thread = threading.Thread(
+            target=self._watch_config_reload_loop,
+            daemon=True,
+            name="config-reload-watcher",
+        )
+        self._config_reload_thread.start()
+
+    def _watch_config_reload_loop(self) -> None:
+        while not self._config_reload_stop.wait(timeout=1.0):
+            self._reload_config_if_needed()
+
+    def _reload_config_if_needed(self) -> bool:
+        current_mtime_ns = self._get_config_mtime_ns()
+        if current_mtime_ns is None or current_mtime_ns == self._config_mtime_ns:
+            return False
+
+        try:
+            from app.config import load_config
+
+            updated_config = load_config(self._config_path)
+        except (OSError, json.JSONDecodeError) as exc:
+            self._app.logger.warning("Config reload skipped; file is not ready yet: %s", exc)
+            return False
+
+        self._config_mtime_ns = current_mtime_ns
+        if updated_config.to_dict() == self._config.to_dict():
+            return False
+
+        self._apply_config(updated_config)
+        return True
+
+    def _apply_config(self, config) -> None:
+        self._config = config
+        self._app.apply_runtime_config(config)
+        self._refresh_menu()
 
     def _build_menu(self) -> pystray.Menu:
         current_device = self._config.microphone_device
@@ -407,24 +462,105 @@ class TrayApp:
 
         root.mainloop()
 
-    def _show_text_window(self, *, title: str, text_content: str, geometry: str = "560x360") -> None:
+    def _show_text_window(
+        self,
+        *,
+        title: str,
+        text_content: str,
+        geometry: str = "560x360",
+        content_provider: Callable[[], str] | None = None,
+        refresh_interval_ms: int = 1000,
+    ) -> None:
+        threading.Thread(
+            target=self._run_text_window,
+            kwargs={
+                "title": title,
+                "text_content": text_content,
+                "geometry": geometry,
+                "content_provider": content_provider,
+                "refresh_interval_ms": refresh_interval_ms,
+            },
+            daemon=True,
+            name=f"{title}-window",
+        ).start()
+
+    def _run_text_window(
+        self,
+        *,
+        title: str,
+        text_content: str,
+        geometry: str = "560x360",
+        content_provider: Callable[[], str] | None = None,
+        refresh_interval_ms: int = 1000,
+    ) -> None:
         root = tk.Tk()
         root.title(title)
-        root.attributes("-topmost", True)
         root.resizable(True, True)
         root.geometry(geometry)
+        root.minsize(420, 240)
+        root.attributes("-topmost", True)
 
-        root.protocol("WM_DELETE_WINDOW", root.destroy)
+        def _clear_topmost() -> None:
+            try:
+                if root.winfo_exists():
+                    root.attributes("-topmost", False)
+            except tk.TclError:
+                pass
+
+        root.after(250, _clear_topmost)
+
+        def _close_window() -> None:
+            try:
+                root.quit()
+            except tk.TclError:
+                pass
+            try:
+                if root.winfo_exists():
+                    root.destroy()
+            except tk.TclError:
+                pass
+
+        root.protocol("WM_DELETE_WINDOW", _close_window)
 
         text = scrolledtext.ScrolledText(root, wrap=tk.WORD, padx=12, pady=12)
         text.pack(fill=tk.BOTH, expand=True)
-        text.insert("1.0", text_content)
-        text.configure(state=tk.DISABLED)
-        text.see(tk.END)
+
+        current_content = ""
+
+        def _refresh_text() -> None:
+            nonlocal current_content
+            try:
+                if not root.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+
+            next_content = content_provider() if content_provider is not None else text_content
+            if next_content != current_content:
+                yview = text.yview()
+                should_follow_end = yview[1] >= 0.999 if current_content else True
+                text.configure(state=tk.NORMAL)
+                text.delete("1.0", tk.END)
+                text.insert("1.0", next_content)
+                text.configure(state=tk.DISABLED)
+                if should_follow_end:
+                    text.see(tk.END)
+                else:
+                    text.yview_moveto(yview[0])
+                current_content = next_content
+
+            if content_provider is not None:
+                try:
+                    if root.winfo_exists():
+                        root.after(refresh_interval_ms, _refresh_text)
+                except tk.TclError:
+                    return
+
+        _refresh_text()
 
         button_frame = tk.Frame(root)
         button_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
-        tk.Button(button_frame, text="Close", command=root.destroy, width=10).pack(side=tk.RIGHT)
+        tk.Button(button_frame, text="Close", command=_close_window, width=10).pack(side=tk.RIGHT)
 
         root.mainloop()
 
@@ -433,7 +569,12 @@ class TrayApp:
 
     def _show_recent_logs(self, _icon, _item) -> None:
         log_text = self._get_recent_logs_text()
-        self._show_text_window(title="Recent Logs", text_content=log_text, geometry="900x480")
+        self._show_text_window(
+            title="Recent Logs",
+            text_content=log_text,
+            geometry="900x480",
+            content_provider=self._get_recent_logs_text,
+        )
 
     def _toggle_pause(self, _icon, _item) -> None:
         self._paused = not self._paused
@@ -455,6 +596,7 @@ class TrayApp:
     def _save_config(self) -> None:
         from app.config import save_config
         save_config(self._config_path, self._config)
+        self._config_mtime_ns = self._get_config_mtime_ns()
 
     def _get_recent_logs_text(self) -> str:
         memory_handler = getattr(self._app.logger, "memory_handler", None)

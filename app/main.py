@@ -45,6 +45,7 @@ class DictationApp:
         self._cancel_lock = threading.Lock()
         self._cancel_generation = 0
         self._processing_generation: int | None = None
+        self._config_lock = threading.RLock()
         platform_services = get_platform_services()
 
         self.recorder = AudioRecorder(device=config.microphone_device)
@@ -117,6 +118,68 @@ class DictationApp:
         with self._llm_status_lock:
             self._llm_available = None
         self._llm_recheck_event.set()
+
+    def apply_runtime_config(self, config: AppConfig) -> None:
+        with self._config_lock:
+            previous = self.config
+            self.config = config
+
+            self.recorder.device = config.microphone_device
+
+            transcriber_needs_rebuild = any(
+                (
+                    previous.whisper_model != config.whisper_model,
+                    previous.whisper_device != config.whisper_device,
+                    previous.whisper_compute_type != config.whisper_compute_type,
+                )
+            )
+            if transcriber_needs_rebuild:
+                self.transcriber = WhisperTranscriber(
+                    config.whisper_model,
+                    config.language_mode,
+                    config.whisper_device,
+                    config.whisper_compute_type,
+                )
+            else:
+                self.transcriber.language_mode = config.language_mode
+
+            cleaner_needs_rebuild = any(
+                (
+                    previous.vllm_url != config.vllm_url,
+                    previous.llm_api_key != config.llm_api_key,
+                    previous.model_name != config.model_name,
+                    previous.restructure_prompt != config.restructure_prompt,
+                    previous.answer_prompt != config.answer_prompt,
+                    previous.temperature != config.temperature,
+                    previous.max_tokens != config.max_tokens,
+                    previous.llm_timeout_seconds != config.llm_timeout_seconds,
+                    previous.llm_extra_body != config.llm_extra_body,
+                    previous.llm_strict_model_name_match != config.llm_strict_model_name_match,
+                )
+            )
+            if cleaner_needs_rebuild:
+                self.cleaner = TranscriptCleaner(
+                    base_url=config.vllm_url,
+                    api_key=config.llm_api_key,
+                    model_name=config.model_name,
+                    restructure_prompt=config.restructure_prompt,
+                    answer_prompt=config.answer_prompt,
+                    temperature=config.temperature,
+                    max_tokens=config.max_tokens,
+                    timeout_seconds=config.llm_timeout_seconds,
+                    extra_body=config.llm_extra_body,
+                    strict_model_name_match=config.llm_strict_model_name_match,
+                )
+                with self._llm_status_lock:
+                    self._llm_available = None
+                self._llm_recheck_event.set()
+
+            self.hotkeys.min_hold_seconds = config.min_hold_seconds
+            self.hotkeys.start_delay_seconds = config.record_start_delay_seconds
+            self.hotkeys.double_press_window_seconds = config.double_press_window_seconds
+            self.hotkeys.first_press_max_seconds = config.first_press_max_seconds
+
+            self.logger.info("Reloaded config from disk")
 
     def _on_record_start(self, mode: str, output_target: str, skip_llm: bool) -> None:
         self.logger.info(
