@@ -38,8 +38,9 @@ Rules:
 
 @dataclass(slots=True)
 class AppConfig:
-    vllm_url: str = "http://127.0.0.1:8000/v1"
-    model_name: str = "Qwen3.5-9B-AWQ-4bit-local"
+    vllm_url: str = "https://openrouter.ai/api/v1"
+    llm_api_key: str | None = None
+    model_name: str = "openai/gpt-4o-mini"
     llm_availability_check_interval_seconds: float = 60.0
     restructure_prompt: str = DEFAULT_RESTRUCTURE_PROMPT
     answer_prompt: str = DEFAULT_ANSWER_PROMPT
@@ -60,7 +61,7 @@ class AppConfig:
     debug_save_wav: bool = False
     debug_wav_dir: str = "debug_recordings"
     llm_strict_model_name_match: bool = True
-    llm_extra_body: dict[str, Any] | None = field(default_factory=lambda: {"chat_template_kwargs": {"enable_thinking": False}})
+    llm_extra_body: dict[str, Any] | None = None
     languages: list[dict[str, str]] = field(default_factory=lambda: [
         {"label": "English", "code": "en"},
         {"label": "Russian", "code": "ru"},

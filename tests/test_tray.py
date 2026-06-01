@@ -132,6 +132,8 @@ class TrayAboutTests(unittest.TestCase):
         self.assertIn("Right Command", about)
         self.assertIn("Right Shift", about)
         self.assertIn("Command+V", about)
+        self.assertIn("OpenRouter", about)
+        self.assertIn("SPEECHTOTEXT_VLLM_API_KEY", about)
 
     def test_show_recent_logs_uses_log_text_window(self) -> None:
         tray_app = TrayApp.__new__(TrayApp)

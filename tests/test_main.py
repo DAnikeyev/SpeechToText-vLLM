@@ -3,12 +3,71 @@ from __future__ import annotations
 import queue
 import threading
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 
 from app.main import DictationApp, DictationJob
+
+
+class DictationAppInitTests(unittest.TestCase):
+    def test_init_injects_platform_hotkeys_and_llm_api_key(self) -> None:
+        config = SimpleNamespace(
+            microphone_device=None,
+            whisper_model="small",
+            language_mode="auto",
+            whisper_device="auto",
+            whisper_compute_type="float16",
+            vllm_url="https://example.test/v1",
+            llm_api_key="provider-key",
+            model_name="provider/model",
+            restructure_prompt="clean prompt",
+            answer_prompt="answer prompt",
+            temperature=0.2,
+            max_tokens=256,
+            llm_timeout_seconds=30.0,
+            llm_extra_body=None,
+            llm_strict_model_name_match=False,
+            min_hold_seconds=2.0,
+            record_start_delay_seconds=0.1,
+            double_press_window_seconds=0.5,
+            first_press_max_seconds=0.25,
+        )
+        platform_services = SimpleNamespace(
+            create_hotkey_backend=MagicMock(name="create_hotkey_backend"),
+            key_modes={"right cmd": "restructure", "right shift": "answer"},
+            triple_press_raw_keys={"right cmd"},
+        )
+        recorder = SimpleNamespace(sample_rate=16000)
+
+        with patch("app.main.setup_logging", return_value=MagicMock()), patch(
+            "app.main.get_platform_services", return_value=platform_services
+        ), patch("app.main.AudioRecorder", return_value=recorder), patch(
+            "app.main.VoiceActivityTrimmer"
+        ), patch("app.main.WhisperTranscriber"), patch("app.main.TranscriptCleaner") as cleaner_cls, patch(
+            "app.main.DoublePressHotkeyTracker"
+        ) as tracker_cls, patch("app.main.threading.Thread"):
+            DictationApp(config=config, base_dir=Path("C:/Repos/GitHub/SpeechToText-vLLM"))
+
+        cleaner_cls.assert_called_once_with(
+            base_url="https://example.test/v1",
+            api_key="provider-key",
+            model_name="provider/model",
+            restructure_prompt="clean prompt",
+            answer_prompt="answer prompt",
+            temperature=0.2,
+            max_tokens=256,
+            timeout_seconds=30.0,
+            extra_body=None,
+            strict_model_name_match=False,
+        )
+        tracker_cls.assert_called_once()
+        tracker_kwargs = tracker_cls.call_args.kwargs
+        self.assertIs(tracker_kwargs["backend_factory"], platform_services.create_hotkey_backend)
+        self.assertEqual(tracker_kwargs["key_modes"], {"right cmd": "restructure", "right shift": "answer"})
+        self.assertEqual(tracker_kwargs["triple_press_raw_keys"], {"right cmd"})
 
 
 class DictationAppOutputTests(unittest.TestCase):

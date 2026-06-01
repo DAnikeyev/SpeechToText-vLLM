@@ -59,13 +59,12 @@ class DoublePressHotkeyTracker:
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def __post_init__(self) -> None:
-        platform_services = get_platform_services()
         if self.backend_factory is None:
-            self.backend_factory = platform_services.create_hotkey_backend
+            self.backend_factory = get_platform_services().create_hotkey_backend
         if self.key_modes is None:
-            self.key_modes = dict(platform_services.key_modes)
+            self.key_modes = dict(DEFAULT_KEY_MODES)
         if self.triple_press_raw_keys is None:
-            self.triple_press_raw_keys = set(platform_services.triple_press_raw_keys)
+            self.triple_press_raw_keys = set(DEFAULT_TRIPLE_PRESS_RAW_KEYS)
 
         for key in self.key_modes or DEFAULT_KEY_MODES:
             if key not in self._keys:

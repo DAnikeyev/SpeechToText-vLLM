@@ -15,6 +15,11 @@ class ConfigTests(unittest.TestCase):
             cfg = load_config(config_path)
             self.assertIsInstance(cfg, AppConfig)
             self.assertTrue(config_path.exists())
+            self.assertEqual(cfg.vllm_url, "https://openrouter.ai/api/v1")
+            self.assertIsNone(cfg.llm_api_key)
+            self.assertEqual(cfg.model_name, "openai/gpt-4o-mini")
+            self.assertTrue(cfg.llm_strict_model_name_match)
+            self.assertIsNone(cfg.llm_extra_body)
             self.assertEqual(cfg.whisper_model, "small")
             self.assertEqual(cfg.llm_availability_check_interval_seconds, 60.0)
 
@@ -29,10 +34,15 @@ class ConfigTests(unittest.TestCase):
     def test_save_config_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "config.json"
-            cfg = AppConfig(model_name="local-model", llm_availability_check_interval_seconds=90.0)
+            cfg = AppConfig(
+                model_name="local-model",
+                llm_api_key="secret-token",
+                llm_availability_check_interval_seconds=90.0,
+            )
             save_config(config_path, cfg)
             loaded = load_config(config_path)
             self.assertEqual(loaded.model_name, "local-model")
+            self.assertEqual(loaded.llm_api_key, "secret-token")
             self.assertEqual(loaded.llm_availability_check_interval_seconds, 90.0)
 
 

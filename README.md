@@ -91,6 +91,43 @@ python3 -m pip install -r requirements/macos.txt
 python3 -m app.main --config config.json
 ```
 
+## Hosted provider quick start (OpenRouter default)
+
+Default `config.json` values already target OpenRouter. The only thing you usually need to provide is an API key.
+
+### Copyable `config.json` snippet
+
+```json
+{
+  "vllm_url": "https://openrouter.ai/api/v1",
+  "llm_api_key": null,
+  "model_name": "openai/gpt-4o-mini",
+  "llm_strict_model_name_match": true,
+  "llm_extra_body": null
+}
+```
+
+### Windows PowerShell
+
+```powershell
+$env:SPEECHTOTEXT_VLLM_API_KEY = "your-openrouter-key"
+py -3.11 -m app.main --config config.json
+```
+
+### macOS / bash
+
+```bash
+export SPEECHTOTEXT_VLLM_API_KEY="your-openrouter-key"
+python3 -m app.main --config config.json
+```
+
+Notes:
+
+- `llm_api_key` in `config.json` overrides environment variables if you prefer storing the key there.
+- `SPEECHTOTEXT_VLLM_API_KEY` is the preferred environment variable.
+- `OPENAI_API_KEY` also works as a fallback.
+- Keep `llm_extra_body` set to `null` for hosted OpenAI-compatible providers such as OpenRouter, OpenAI, Groq, Together, and DeepInfra.
+
 ## Build distributables
 
 ### Windows executable
@@ -117,6 +154,55 @@ chmod +x ./scripts/build_macos.sh
 Expected output:
 
 - `dist/macos/DictationAssistant.app`
+
+## Build and release with GitHub Actions
+
+`dist/` is intended to stay local-only and is already gitignored. Do not commit packaged executables or app bundles.
+
+### Build Windows and macOS artifacts in Actions
+
+Use the existing `Build and Test` workflow:
+
+1. Open **GitHub -> Actions -> Build and Test**.
+2. Click **Run workflow**.
+3. Choose the branch you want to build.
+4. Wait for the `build` job to finish.
+5. Download these artifacts from the run summary:
+   - `DictationAssistant-windows`
+   - `DictationAssistant-macos`
+
+This gives you packaged builds for both platforms without committing anything from `dist/`.
+
+### Publish a GitHub Release from the workflow output
+
+1. Run **Build and Test** manually as above.
+2. Download both uploaded artifacts.
+3. Open **GitHub -> Releases -> Draft a new release**.
+4. Create a tag such as `v0.1.0`.
+5. Upload:
+   - the Windows `DictationAssistant.exe`
+   - the macOS `DictationAssistant.app` (zip it first on macOS if you want a single downloadable file)
+6. Publish the release.
+
+This keeps release binaries in GitHub Releases instead of in the repository.
+
+### Local rebuild after cleaning generated output
+
+Windows:
+
+```powershell
+Remove-Item -Recurse -Force .\dist -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force .\build\windows -ErrorAction SilentlyContinue
+.\scripts\build_windows.ps1
+```
+
+macOS:
+
+```bash
+rm -rf ./dist ./build/macos
+chmod +x ./scripts/build_macos.sh
+./scripts/build_macos.sh
+```
 
 ## Dist folder layout
 
@@ -166,10 +252,18 @@ macOS packaging should be built on macOS. If you distribute outside your own mac
 
 `config.json` is created automatically with defaults if missing.
 
+For hosted OpenAI-compatible providers, you can either set `llm_api_key` in `config.json` or provide one of these environment variables before starting the app:
+
+- `SPEECHTOTEXT_VLLM_API_KEY` (preferred)
+- `OPENAI_API_KEY`
+
+If neither is set, the app falls back to the local placeholder key `local`, which is suitable for local vLLM / Ollama-style gateways that do not enforce auth.
+
 | Key | Default | Description |
 |---|---|---|
-| `vllm_url` | `http://127.0.0.1:8000/v1` | vLLM OpenAI-compatible endpoint |
-| `model_name` | `Qwen3.5-9B-AWQ-4bit-local` | Model name for the LLM endpoint |
+| `vllm_url` | `https://openrouter.ai/api/v1` | OpenAI-compatible LLM endpoint |
+| `llm_api_key` | `null` | Optional bearer token for hosted OpenAI-compatible providers; can also come from environment |
+| `model_name` | `openai/gpt-4o-mini` | Model name for the LLM endpoint |
 | `microphone_device` | `null` | Device index or `null` for default |
 | `whisper_model` | `small` | Faster-Whisper model size |
 | `whisper_device` | `auto` | Whisper runtime device selection |
@@ -183,6 +277,8 @@ macOS packaging should be built on macOS. If you distribute outside your own mac
 | `max_tokens` | `512` | Max LLM response tokens |
 | `llm_timeout_seconds` | `60.0` | Timeout for the LLM request |
 | `llm_availability_check_interval_seconds` | `60.0` | Background model availability polling interval |
+| `llm_strict_model_name_match` | `true` | Require an exact match between `model_name` and the provider's `/v1/models` response |
+| `llm_extra_body` | `null` | Optional extra JSON fields sent with chat completions; leave `null` for hosted OpenAI-compatible providers |
 | `vad_enabled` | `true` | Enable WebRTC VAD trimming |
 | `silence_rms_threshold` | `0.005` | RMS threshold for silent audio |
 | `debug_save_wav` | `false` | Save WAVs for debugging |

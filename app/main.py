@@ -17,6 +17,7 @@ from app.hotkeys import DoublePressHotkeyTracker
 from app.inject import inject_text
 from app.llm import TranscriptCleaner
 from app.logger import setup_logging
+from app.platform import get_platform_services
 from app.stt import WhisperTranscriber
 from app.vad import VoiceActivityTrimmer
 
@@ -44,6 +45,7 @@ class DictationApp:
         self._cancel_lock = threading.Lock()
         self._cancel_generation = 0
         self._processing_generation: int | None = None
+        platform_services = get_platform_services()
 
         self.recorder = AudioRecorder(device=config.microphone_device)
         self.vad = VoiceActivityTrimmer(sample_rate=self.recorder.sample_rate)
@@ -55,6 +57,7 @@ class DictationApp:
         )
         self.cleaner = TranscriptCleaner(
             base_url=config.vllm_url,
+            api_key=config.llm_api_key,
             model_name=config.model_name,
             restructure_prompt=config.restructure_prompt,
             answer_prompt=config.answer_prompt,
@@ -72,6 +75,9 @@ class DictationApp:
             start_delay_seconds=config.record_start_delay_seconds,
             double_press_window_seconds=config.double_press_window_seconds,
             first_press_max_seconds=config.first_press_max_seconds,
+            backend_factory=platform_services.create_hotkey_backend,
+            key_modes=dict(platform_services.key_modes),
+            triple_press_raw_keys=set(platform_services.triple_press_raw_keys),
         )
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)
         self.llm_monitor = threading.Thread(target=self._llm_monitor_loop, daemon=True)

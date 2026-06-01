@@ -42,7 +42,7 @@ def build_about_text() -> str:
     platform_label = "Windows" if platform_name == "windows" else "macOS"
     return f"""SpeechToText-vLLM
 
-{platform_label} dictation assistant with shared speech and vLLM pipeline.
+{platform_label} dictation assistant with shared speech and OpenAI-compatible LLM pipeline.
 
 Hotkeys
 - {restructure_key}: single hold -> transcribe, clean with LLM, insert and copy to clipboard
@@ -51,9 +51,14 @@ Hotkeys
 - {answer_key}: single hold -> transcribe, answer with vLLM, insert and copy to clipboard
 - {answer_key}: double-press then hold -> transcribe, answer with vLLM, copy to clipboard
 
+LLM defaults
+- Hosted default: OpenRouter at https://openrouter.ai/api/v1
+- API key: set llm_api_key in config.json or use SPEECHTOTEXT_VLLM_API_KEY
+- Compatibility presets: Hosted OpenAI-compatible, Ollama, and vLLM / Qwen
+
 Tips
 - The icon is green when active and red when paused.
-- Open the {location} icon to change microphone, language, or LLM server URL.
+- Open the {location} icon to change microphone, language, LLM server URL, or compatibility preset.
 - Press Backspace while processing to cancel the current analysis/output.
 - Text insertion pastes from the clipboard ({paste_shortcut}) for better editor compatibility.
 """
@@ -316,9 +321,9 @@ class TrayApp:
         from tkinter import messagebox
 
         _PRESETS = {
-            "vLLM / Qwen (default)": {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}, "strict": True},
+            "Hosted OpenAI-compatible (OpenRouter default)": {"extra_body": None, "strict": True},
             "Ollama": {"extra_body": None, "strict": False},
-            "llama.cpp": {"extra_body": None, "strict": True},
+            "vLLM / Qwen": {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}, "strict": True},
         }
 
         def _guess_preset():

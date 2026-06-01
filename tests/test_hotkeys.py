@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 from app.hotkeys import DoublePressHotkeyTracker
 
@@ -27,6 +29,23 @@ def _make_event(name: str, event_type: str) -> MagicMock:
 
 
 class DoublePressHotkeyTrackerTests(unittest.TestCase):
+    def test_default_bindings_do_not_depend_on_platform_services(self) -> None:
+        services = SimpleNamespace(
+            create_hotkey_backend=lambda: _FakeBackend(),
+            key_modes={"right cmd": "restructure", "right shift": "answer"},
+            triple_press_raw_keys={"right cmd"},
+        )
+
+        with patch("app.hotkeys.get_platform_services", return_value=services):
+            tracker = DoublePressHotkeyTracker(
+                on_record_start=lambda mode, output, skip_llm: None,
+                on_record_stop=lambda hold, mode, output, skip_llm: None,
+                min_hold_seconds=2.0,
+            )
+
+        self.assertEqual(tracker.key_modes, {"right ctrl": "restructure", "right shift": "answer"})
+        self.assertEqual(tracker.triple_press_raw_keys, {"right ctrl"})
+
     def test_start_and_stop_use_injected_backend(self) -> None:
         backend = _FakeBackend()
         tracker = DoublePressHotkeyTracker(
