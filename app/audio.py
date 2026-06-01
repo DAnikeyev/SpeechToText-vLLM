@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import threading
 import wave
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -13,15 +15,22 @@ except Exception:  # pragma: no cover - optional at import time
     sd = None
 
 
+logger = logging.getLogger(__name__)
+
+
 @dataclass
 class AudioRecorder:
     sample_rate: int = 16_000
     channels: int = 1
     dtype: str = "float32"
     device: int | str | None = None
+    read_block_frames: int = 1024
 
     _stream = None
     _chunks: list[np.ndarray] = field(default_factory=list)
+    _stop_event: threading.Event = field(default_factory=threading.Event)
+    _reader_thread: threading.Thread | None = None
+    _read_exception: Exception | None = None
 
     def list_input_devices(self) -> list[str]:
         if sd is None:
@@ -32,28 +41,73 @@ class AudioRecorder:
     def start(self) -> None:
         if sd is None:
             raise RuntimeError("sounddevice library is required for audio recording")
+        if self._stream is not None:
+            self.stop()
         self._chunks.clear()
+        self._stop_event = threading.Event()
+        self._reader_thread = None
+        self._read_exception = None
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype=self.dtype,
             device=self.device,
-            callback=self._callback,
         )
         self._stream.start()
+        self._reader_thread = threading.Thread(target=self._read_loop, daemon=True, name="audio-recorder")
+        self._reader_thread.start()
 
     def stop(self) -> np.ndarray:
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        stream = self._stream
+        reader_thread = self._reader_thread
+        self._stop_event.set()
+
+        if stream is not None:
+            try:
+                stream.stop()
+            except Exception:
+                logger.debug("Audio stream stop raised during shutdown", exc_info=True)
+
+        if reader_thread is not None and reader_thread.is_alive():
+            reader_thread.join(timeout=1.0)
+
+        if stream is not None:
+            try:
+                stream.close()
+            except Exception:
+                logger.debug("Audio stream close raised during shutdown", exc_info=True)
+
+        self._stream = None
+        self._reader_thread = None
 
         if not self._chunks:
             return np.zeros((0,), dtype=np.float32)
         return np.concatenate(self._chunks, axis=0).astype(np.float32, copy=False)
 
-    def _callback(self, audio_data, _frames, _time_info, _status) -> None:
-        self._chunks.append(audio_data[:, 0].copy())
+    def _read_loop(self) -> None:
+        stream = self._stream
+        if stream is None:
+            return
+
+        while not self._stop_event.is_set():
+            try:
+                audio_data, overflowed = stream.read(self.read_block_frames)
+            except Exception as exc:
+                if self._stop_event.is_set():
+                    return
+                self._read_exception = exc
+                logger.warning("Audio capture read failed: %s", exc)
+                self._stop_event.set()
+                return
+
+            if overflowed:
+                logger.warning("Audio input overflow detected; some captured audio may be missing")
+
+            if audio_data is None or len(audio_data) == 0:
+                continue
+
+            chunk = np.asarray(audio_data[:, 0], dtype=np.float32)
+            self._chunks.append(chunk.copy())
 
     @staticmethod
     def to_pcm16(audio: np.ndarray) -> np.ndarray:

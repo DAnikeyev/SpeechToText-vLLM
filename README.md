@@ -107,10 +107,22 @@ Notes:
 
 - You usually do **not** need `--config config.json` on macOS anymore. If no config path is provided, the app uses a per-user config file at `~/Library/Application Support/SpeechToText-vLLM/config.json`.
 - Terminal logs should appear immediately while running from source. If hotkeys still do not fire, open **Recent Logs** from the menu bar icon to check whether the app started in paused mode because macOS blocked global input access.
-- If you do want to use a custom config file, pass an absolute path, for example:
+- If you do want to use a specific config file explicitly, pass `--config` with an absolute path, for example:
 
 ```bash
 python3 -m app.main --config "$PWD/config.json"
+```
+
+You can also point to any other file location, for example:
+
+```bash
+python3 -m app.main --config "$HOME/my-dictation-config.json"
+```
+
+If you are launching the packaged macOS app from Terminal and want to force a specific config file, run the inner executable directly:
+
+```bash
+./dist/macos/DictationAssistant.app/Contents/MacOS/DictationAssistant --config "$PWD/config.json"
 ```
 
 ## Hosted provider quick start (OpenRouter default)
