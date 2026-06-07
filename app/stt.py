@@ -86,6 +86,19 @@ class WhisperTranscriber:
         self.last_language: str | None = None
         self.logger = logging.getLogger(__name__)
 
+    @staticmethod
+    def _is_macos() -> bool:
+        return sys.platform == "darwin"
+
+    def _default_cpu_compute_type(self) -> str:
+        # float32 is slower on macOS but significantly more stable with some
+        # Python/ctranslate2 combinations than int8.
+        return "float32" if self._is_macos() else "int8"
+
+    @staticmethod
+    def _dedupe(items: list[str]) -> list[str]:
+        return list(dict.fromkeys(items))
+
     def load(self) -> None:
         if self.model is not None:
             return
@@ -101,27 +114,51 @@ class WhisperTranscriber:
                 effective_compute_type = self.compute_type
             else:
                 effective_device = "cpu"
-                effective_compute_type = "int8"
+                effective_compute_type = self._default_cpu_compute_type()
 
         if effective_device == "cuda" and not _try_cuda():
             self.logger.warning(
                 "CUDA not available (cublas DLLs missing or incompatible). "
-                "Falling back to CPU with int8."
+                "Falling back to CPU with a safe compute profile."
             )
             effective_device = "cpu"
-            effective_compute_type = "int8"
+            effective_compute_type = self._default_cpu_compute_type()
 
-        self.logger.info(
-            "Loading Whisper model=%s device=%s compute_type=%s",
-            self.model_name,
-            effective_device,
-            effective_compute_type,
-        )
-        self.model = WhisperModel(
-            self.model_name,
-            device=effective_device,
-            compute_type=effective_compute_type,
-        )
+        model_kwargs: dict[str, int] = {}
+        if self._is_macos() and effective_device == "cpu":
+            # Keep CT2 on a conservative threading profile to avoid native crashes.
+            model_kwargs["cpu_threads"] = 1
+            model_kwargs["num_workers"] = 1
+
+        compute_candidates = [effective_compute_type]
+        if self._is_macos() and effective_device == "cpu":
+            compute_candidates = self._dedupe([effective_compute_type, "float32", "int8"])
+
+        last_error: Exception | None = None
+        for candidate in compute_candidates:
+            self.logger.info(
+                "Loading Whisper model=%s device=%s compute_type=%s",
+                self.model_name,
+                effective_device,
+                candidate,
+            )
+            try:
+                self.model = WhisperModel(
+                    self.model_name,
+                    device=effective_device,
+                    compute_type=candidate,
+                    **model_kwargs,
+                )
+                return
+            except Exception as exc:
+                last_error = exc
+                self.logger.warning(
+                    "Failed to load Whisper with compute_type=%s (%s)",
+                    candidate,
+                    exc,
+                )
+
+        raise RuntimeError("Unable to load faster-whisper model with any safe profile") from last_error
 
     def transcribe(self, audio: np.ndarray, sample_rate: int = 16_000) -> str:
         if audio.size == 0:

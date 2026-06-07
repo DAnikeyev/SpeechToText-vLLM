@@ -31,6 +31,7 @@ class AudioRecorder:
     _stop_event: threading.Event = field(default_factory=threading.Event)
     _reader_thread: threading.Thread | None = None
     _read_exception: Exception | None = None
+    _lock: threading.RLock = field(default_factory=threading.RLock)
 
     def list_input_devices(self) -> list[str]:
         if sd is None:
@@ -41,48 +42,69 @@ class AudioRecorder:
     def start(self) -> None:
         if sd is None:
             raise RuntimeError("sounddevice library is required for audio recording")
-        if self._stream is not None:
-            self.stop()
-        self._chunks.clear()
-        self._stop_event = threading.Event()
-        self._reader_thread = None
-        self._read_exception = None
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=self.channels,
-            dtype=self.dtype,
-            device=self.device,
-        )
-        self._stream.start()
-        self._reader_thread = threading.Thread(target=self._read_loop, daemon=True, name="audio-recorder")
-        self._reader_thread.start()
+        with self._lock:
+            if self._stream is not None:
+                self.stop()
+            self._chunks.clear()
+            self._stop_event = threading.Event()
+            self._reader_thread = None
+            self._read_exception = None
+
+            def _on_audio(indata, _frames, _time_info, status) -> None:
+                if self._stop_event.is_set():
+                    return
+                if status:
+                    logger.warning("Audio input reported callback status: %s", status)
+                if indata is None or len(indata) == 0:
+                    return
+                try:
+                    chunk = np.asarray(indata[:, 0], dtype=np.float32)
+                    self._chunks.append(chunk.copy())
+                except Exception as exc:
+                    self._read_exception = exc
+                    self._stop_event.set()
+
+            stream_kwargs = dict(
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                dtype=self.dtype,
+                blocksize=self.read_block_frames,
+                callback=_on_audio,
+            )
+            try:
+                self._stream = sd.InputStream(device=self.device, **stream_kwargs)
+            except Exception as exc:
+                if self.device is None:
+                    raise
+                logger.warning(
+                    "Failed to open configured microphone device %r (%s); retrying with system default device",
+                    self.device,
+                    exc,
+                )
+                self._stream = sd.InputStream(device=None, **stream_kwargs)
+            self._stream.start()
 
     def stop(self) -> np.ndarray:
-        stream = self._stream
-        reader_thread = self._reader_thread
-        self._stop_event.set()
+        with self._lock:
+            stream = self._stream
+            self._stream = None
+            self._reader_thread = None
+            self._stop_event.set()
 
         if stream is not None:
             try:
                 stream.stop()
             except Exception:
                 logger.debug("Audio stream stop raised during shutdown", exc_info=True)
-
-        if reader_thread is not None and reader_thread.is_alive():
-            reader_thread.join(timeout=1.0)
-
-        if stream is not None:
             try:
                 stream.close()
             except Exception:
                 logger.debug("Audio stream close raised during shutdown", exc_info=True)
 
-        self._stream = None
-        self._reader_thread = None
-
-        if not self._chunks:
-            return np.zeros((0,), dtype=np.float32)
-        return np.concatenate(self._chunks, axis=0).astype(np.float32, copy=False)
+        with self._lock:
+            if not self._chunks:
+                return np.zeros((0,), dtype=np.float32)
+            return np.concatenate(self._chunks, axis=0).astype(np.float32, copy=False)
 
     def _read_loop(self) -> None:
         stream = self._stream
