@@ -35,10 +35,10 @@ class InMemoryLogHandlerTests(unittest.TestCase):
             exc_info=None,
         )
 
-        result = PlatformContextFilter("macos").filter(record)
+        result = PlatformContextFilter("windows").filter(record)
 
         self.assertTrue(result)
-        self.assertEqual(record.platform_name, "macos")
+        self.assertEqual(record.platform_name, "windows")
 
 
 if __name__ == "__main__":

@@ -13,11 +13,7 @@ def get_platform_services(platform: str | None = None) -> PlatformServices:
         from app.platform import windows
 
         return windows.SERVICES
-    if target == "darwin":
-        from app.platform import macos
-
-        return macos.SERVICES
-    raise RuntimeError(f"Unsupported platform '{target}'. Windows and macOS are currently supported.")
+    raise RuntimeError(f"Unsupported platform '{target}'. Only Windows is currently supported.")
 
 
 def current_platform_name() -> str:

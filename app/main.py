@@ -453,13 +453,9 @@ def parse_args() -> argparse.Namespace:
 
 def default_config_path() -> Path:
     app_dir_name = "SpeechToText-vLLM"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / app_dir_name / "config.json"
-    if sys.platform == "win32":
-        appdata = os.getenv("APPDATA")
-        root = Path(appdata) if appdata else (Path.home() / "AppData" / "Roaming")
-        return root / app_dir_name / "config.json"
-    return Path.cwd() / "config.json"
+    appdata = os.getenv("APPDATA")
+    root = Path(appdata) if appdata else (Path.home() / "AppData" / "Roaming")
+    return root / app_dir_name / "config.json"
 
 
 def main() -> None:

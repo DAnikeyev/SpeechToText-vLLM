@@ -1,10 +1,12 @@
-name: Build and Test
+name: Build and Release
 
 on:
   push:
     branches:
       - main
       - master
+    tags:
+      - v*
   pull_request:
   workflow_dispatch:
 
@@ -18,14 +20,8 @@ env:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - windows-latest
-          - macos-latest
+    name: Test (windows-latest)
+    runs-on: windows-latest
 
     steps:
       - name: Check out repository
@@ -36,42 +32,17 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install macOS system dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew update
-          brew install portaudio
-
-      - name: Install Windows dependencies
-        if: runner.os == 'Windows'
+      - name: Install dependencies
         run: python -m pip install -r requirements/windows.txt
-
-      - name: Install macOS dependencies
-        if: runner.os == 'macOS'
-        run: python -m pip install -r requirements/macos.txt
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py"
 
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (windows-latest)
     needs: test
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            artifact_name: DictationAssistant-windows
-            artifact_path: dist/windows/DictationAssistant.exe
-            build_shell: pwsh
-            build_command: ./scripts/build_windows.ps1
-          - os: macos-latest
-            artifact_name: DictationAssistant-macos
-            artifact_path: dist/macos/DictationAssistant.app
-            build_shell: bash
-            build_command: chmod +x ./scripts/build_macos.sh && ./scripts/build_macos.sh
+    runs-on: windows-latest
 
     steps:
       - name: Check out repository
@@ -82,26 +53,33 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install macOS system dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew update
-          brew install portaudio
-
-      - name: Build distributable (Windows)
-        if: runner.os == 'Windows'
+      - name: Build executable
         shell: pwsh
         run: ./scripts/build_windows.ps1
-
-      - name: Build distributable (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: chmod +x ./scripts/build_macos.sh && ./scripts/build_macos.sh
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_path }}
+          name: DictationAssistant-windows
+          path: dist/windows/DictationAssistant.exe
           if-no-files-found: error
 
+  release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DictationAssistant-windows
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: DictationAssistant.exe
+          generate_release_notes: true

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import tempfile
 import time
 import wave
@@ -87,13 +86,8 @@ class WhisperTranscriber:
         self.logger = logging.getLogger(__name__)
 
     @staticmethod
-    def _is_macos() -> bool:
-        return sys.platform == "darwin"
-
-    def _default_cpu_compute_type(self) -> str:
-        # float32 is slower on macOS but significantly more stable with some
-        # Python/ctranslate2 combinations than int8.
-        return "float32" if self._is_macos() else "int8"
+    def _default_cpu_compute_type() -> str:
+        return "int8"
 
     @staticmethod
     def _dedupe(items: list[str]) -> list[str]:
@@ -125,14 +119,8 @@ class WhisperTranscriber:
             effective_compute_type = self._default_cpu_compute_type()
 
         model_kwargs: dict[str, int] = {}
-        if self._is_macos() and effective_device == "cpu":
-            # Keep CT2 on a conservative threading profile to avoid native crashes.
-            model_kwargs["cpu_threads"] = 1
-            model_kwargs["num_workers"] = 1
 
         compute_candidates = [effective_compute_type]
-        if self._is_macos() and effective_device == "cpu":
-            compute_candidates = self._dedupe([effective_compute_type, "float32", "int8"])
 
         last_error: Exception | None = None
         for candidate in compute_candidates:

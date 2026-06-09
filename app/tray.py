@@ -14,7 +14,7 @@ from PIL import Image, ImageEnhance, ImageOps
 
 import pystray
 
-from app.platform import current_platform_name, get_platform_services
+from app.platform import get_platform_services
 
 _ICON_PATH = Path(__file__).parent / "mic.ico"
 _BASE_ICON: Image.Image | None = None
@@ -36,16 +36,12 @@ def _hotkey_labels() -> dict[str, str]:
 
 
 def build_about_text() -> str:
-    platform_name = current_platform_name()
     labels = _hotkey_labels()
     restructure_key = labels.get("restructure", "Primary key")
     answer_key = labels.get("answer", "Secondary key")
-    paste_shortcut = "Ctrl+V" if platform_name == "windows" else "Command+V"
-    location = "system tray" if platform_name == "windows" else "menu bar"
-    platform_label = "Windows" if platform_name == "windows" else "macOS"
     return f"""SpeechToText-vLLM
 
-{platform_label} dictation assistant with shared speech and OpenAI-compatible LLM pipeline.
+Windows dictation assistant with shared speech and OpenAI-compatible LLM pipeline.
 
 Hotkeys
 - {restructure_key}: single hold -> transcribe, clean with LLM, insert and copy to clipboard
@@ -62,9 +58,9 @@ LLM defaults
 
 Tips
 - The icon is green when active and red when paused.
-- Open the {location} icon to change microphone, language, LLM server URL, or compatibility preset.
+- Open the system tray icon to change microphone, language, LLM server URL, or compatibility preset.
 - Press Backspace while processing to cancel the current analysis/output.
-- Text insertion pastes from the clipboard ({paste_shortcut}) for better editor compatibility.
+- Text insertion pastes from the clipboard (Ctrl+V) for better editor compatibility.
 """
 
 

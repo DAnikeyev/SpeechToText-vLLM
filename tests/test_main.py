@@ -329,15 +329,6 @@ class DictationAppOutputTests(unittest.TestCase):
 
 
 class MainConfigPathTests(unittest.TestCase):
-    def test_default_config_path_on_macos_uses_application_support(self) -> None:
-        with patch("app.main.sys.platform", "darwin"), patch("app.main.Path.home", return_value=Path("/Users/tester")):
-            path = default_config_path()
-
-        self.assertEqual(
-            path,
-            Path("/Users/tester/Library/Application Support/SpeechToText-vLLM/config.json"),
-        )
-
     def test_default_config_path_on_windows_uses_appdata(self) -> None:
         with patch("app.main.sys.platform", "win32"), patch("app.main.os.getenv", return_value=r"C:\Users\tester\AppData\Roaming"):
             path = default_config_path()

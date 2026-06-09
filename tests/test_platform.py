@@ -9,7 +9,6 @@ from app.inject import inject_text
 from app.platform import get_platform_services
 from app.platform.base import HotkeyEvent
 from app.stt import detect_keyboard_language
-import app.platform.macos as macos_platform
 import app.platform.windows as windows_platform
 
 
@@ -41,113 +40,11 @@ class PlatformDispatchTests(unittest.TestCase):
 
     def test_get_platform_services_resolves_known_platforms(self) -> None:
         self.assertEqual(get_platform_services("win32").name, "windows")
-        self.assertEqual(get_platform_services("darwin").name, "macos")
         self.assertTrue(callable(get_platform_services("win32").create_hotkey_backend))
-        self.assertTrue(callable(get_platform_services("darwin").create_hotkey_backend))
 
     def test_get_platform_services_rejects_unknown_platform(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "Unsupported platform"):
             get_platform_services("linux")
-
-
-class MacOSPlatformTests(unittest.TestCase):
-    class _FakeListener:
-        def __init__(self, *, on_press, on_release) -> None:
-            self.on_press = on_press
-            self.on_release = on_release
-            self.started = False
-            self.stopped = False
-
-        def start(self) -> None:
-            self.started = True
-
-        def stop(self) -> None:
-            self.stopped = True
-
-    class _FakePynputKeyboard:
-        class Key:
-            ctrl_r = object()
-            ctrl = object()
-            cmd_r = object()
-            cmd = object()
-            shift_r = object()
-            shift = object()
-            backspace = object()
-            delete = object()
-
-        def __init__(self) -> None:
-            self.listeners: list[MacOSPlatformTests._FakeListener] = []
-
-        def Listener(self, *, on_press, on_release):
-            listener = MacOSPlatformTests._FakeListener(on_press=on_press, on_release=on_release)
-            self.listeners.append(listener)
-            return listener
-
-    def test_copy_to_clipboard_uses_pbcopy(self) -> None:
-        with patch("app.platform.macos.subprocess.run") as run:
-            macos_platform.copy_to_clipboard("hello")
-
-        run.assert_called_once_with(["pbcopy"], input="hello", text=True, check=True)
-
-    def test_inject_text_pastes_with_osascript(self) -> None:
-        with patch("app.platform.macos.copy_to_clipboard") as copy_mock, patch(
-            "app.platform.macos.subprocess.run"
-        ) as run, patch("app.platform.macos.time.sleep"):
-            macos_platform.inject_text("hello")
-
-        copy_mock.assert_called_once_with("hello")
-        run.assert_called_once_with(
-            [
-                "osascript",
-                "-e",
-                'tell application "System Events" to keystroke "v" using command down',
-            ],
-            check=True,
-        )
-
-    def test_macos_hotkey_backend_maps_supported_keys(self) -> None:
-        fake_keyboard = self._FakePynputKeyboard()
-        backend = macos_platform.PynputHotkeyBackend(keyboard_module=fake_keyboard)
-        received: list[HotkeyEvent] = []
-
-        backend.start(received.append)
-        listener = fake_keyboard.listeners[0]
-        listener.on_press(fake_keyboard.Key.ctrl_r)
-        listener.on_release(fake_keyboard.Key.shift_r)
-        listener.on_press(fake_keyboard.Key.backspace)
-        backend.stop()
-
-        self.assertTrue(listener.started)
-        self.assertTrue(listener.stopped)
-        self.assertEqual(
-            received,
-            [
-                HotkeyEvent(name="right ctrl", event_type="down"),
-                HotkeyEvent(name="right shift", event_type="up"),
-                HotkeyEvent(name="backspace", event_type="down"),
-            ],
-        )
-
-    def test_macos_hotkey_backend_maps_generic_modifier_variants(self) -> None:
-        fake_keyboard = self._FakePynputKeyboard()
-        backend = macos_platform.PynputHotkeyBackend(keyboard_module=fake_keyboard)
-        received: list[HotkeyEvent] = []
-
-        backend.start(received.append)
-        listener = fake_keyboard.listeners[0]
-        listener.on_press(fake_keyboard.Key.cmd)
-        listener.on_release(fake_keyboard.Key.shift)
-        listener.on_press(fake_keyboard.Key.delete)
-        backend.stop()
-
-        self.assertEqual(
-            received,
-            [
-                HotkeyEvent(name="right cmd", event_type="down"),
-                HotkeyEvent(name="right shift", event_type="up"),
-                HotkeyEvent(name="backspace", event_type="down"),
-            ],
-        )
 
 
 class WindowsPlatformTests(unittest.TestCase):

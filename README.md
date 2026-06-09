@@ -1,17 +1,8 @@
 # SpeechToText-vLLM
 
-Cross-platform dictation assistant with a shared Python core and platform-specific desktop integrations for Windows and macOS. The app records audio, transcribes it locally with Faster-Whisper, optionally cleans or answers with a local vLLM/OpenAI-compatible endpoint, and then inserts the result into the active app and/or copies it to the clipboard.
-
-## Checklist
-
-- Shared speech pipeline for Windows and macOS
-- Platform-specific global hotkeys, clipboard, paste, and packaging
-- Separate build outputs in `dist/windows` and `dist/macos`
-- Tray/menu-bar UI with recent logs and runtime configuration
+Windows dictation assistant. The app records audio, transcribes it locally with Faster-Whisper, optionally cleans or answers with a local vLLM/OpenAI-compatible endpoint, and then inserts the result into the active app and/or copies it to the clipboard.
 
 ## Default hotkeys
-
-### Windows defaults
 
 | Key | Action |
 |---|---|
@@ -21,33 +12,20 @@ Cross-platform dictation assistant with a shared Python core and platform-specif
 | **Right Shift** (single hold) | Record → answer/follow instructions → insert into active field and copy to clipboard |
 | **Right Shift** (double-press then hold) | Record → answer/follow instructions → copy to clipboard |
 
-### macOS defaults
-
-| Key | Action |
-|---|---|
-| **Right Command** (single hold) | Record → restructure/clean transcript → insert into active field and copy to clipboard |
-| **Right Command** (double-press then hold) | Record → restructure/clean transcript → copy to clipboard |
-| **Right Command** (triple-press then hold) | Record → transcribe only → insert and copy raw transcript |
-| **Right Shift** (single hold) | Record → answer/follow instructions → insert into active field and copy to clipboard |
-| **Right Shift** (double-press then hold) | Record → answer/follow instructions → copy to clipboard |
-
 Gesture rules:
 
 - **Single hold**: press and hold once; recording starts after the tap threshold passes and stops when you release.
 - **Double-press then hold**: tap once briefly, release, then press and hold on the second press.
 - **Triple-press then hold**: tap twice briefly, then hold on the third press to skip vLLM and emit raw Whisper output.
-- **Backspace** cancels the current processing/output operation on both platforms.
+- **Backspace** cancels the current processing/output operation.
 
-## Tray / menu bar UI
+## Tray UI
 
-The app runs without a main window. Look for the microphone icon:
-
-- in the **Windows system tray / notification area**, or
-- in the **macOS menu bar**.
+The app runs without a main window. Look for the microphone icon in the **Windows system tray / notification area**.
 
 The icon is green when active and red when paused.
 
-Tray/menu items:
+Tray menu items:
 
 - **Primary hotkey (restructure)** — enable/disable the cleanup hotkey
 - **Secondary hotkey (answer)** — enable/disable the answer hotkey
@@ -61,68 +39,21 @@ Tray/menu items:
 
 ## Language detection
 
-- On **Windows**, `language_mode = "auto-detected"` reads the foreground keyboard layout and passes that language hint to Whisper.
-- On **macOS**, keyboard-layout detection is not implemented yet; `auto-detected` currently falls back to Whisper auto-detection unless you explicitly choose a language from the tray/menu.
-- On either platform, `language_mode = "auto"` lets Whisper infer the language from audio.
+`language_mode = "auto-detected"` reads the foreground keyboard layout and passes that language hint to Whisper.
 
 ## Logging
 
 Logs are available in three places:
 
 - console/stdout while running from source
-- **Recent Logs** in the tray/menu
+- **Recent Logs** in the tray
 - packaged app console logs if you launch the executable from a terminal
 
-Each log line includes the active platform label (`windows` or `macos`) so mixed build/test logs stay readable.
-
 ## Install from source
-
-### Windows
 
 ```powershell
 py -3.11 -m pip install -r requirements/windows.txt
 py -3.11 -m app.main --config config.json
-```
-
-### macOS
-
-```bash
-python3 -m pip install -r requirements/macos.txt
-python3 -m app.main
-```
-
-Recommended for the first macOS run:
-
-1. Start the app from the repository root with `python3 -m app.main`.
-2. When macOS prompts, allow **Microphone** access.
-3. In **System Settings -> Privacy & Security**, enable:
-   - **Accessibility** for text insertion / UI scripting
-   - **Input Monitoring** if hotkeys do not register in your environment
-4. Fully quit the app and launch it again after changing permissions.
-5. Look for the microphone icon in the **menu bar**:
-   - **green** = active
-   - **red** = paused or hotkeys failed to start
-
-Notes:
-
-- You usually do **not** need `--config config.json` on macOS anymore. If no config path is provided, the app uses a per-user config file at `~/Library/Application Support/SpeechToText-vLLM/config.json`.
-- Terminal logs should appear immediately while running from source. If hotkeys still do not fire, open **Recent Logs** from the menu bar icon to check whether the app started in paused mode because macOS blocked global input access.
-- If you do want to use a specific config file explicitly, pass `--config` with an absolute path, for example:
-
-```bash
-python3 -m app.main --config "$PWD/config.json"
-```
-
-You can also point to any other file location, for example:
-
-```bash
-python3 -m app.main --config "$HOME/my-dictation-config.json"
-```
-
-If you are launching the packaged macOS app from Terminal and want to force a specific config file, run the inner executable directly:
-
-```bash
-./dist/macos/DictationAssistant.app/Contents/MacOS/DictationAssistant --config "$PWD/config.json"
 ```
 
 ## Hosted provider quick start (OpenRouter default)
@@ -141,18 +72,11 @@ Default `config.json` values already target OpenRouter. The only thing you usual
 }
 ```
 
-### Windows PowerShell
+### PowerShell
 
 ```powershell
 $env:SPEECHTOTEXT_VLLM_API_KEY = "your-openrouter-key"
 py -3.11 -m app.main --config config.json
-```
-
-### macOS / bash
-
-```bash
-export SPEECHTOTEXT_VLLM_API_KEY="your-openrouter-key"
-python3 -m app.main
 ```
 
 Notes:
@@ -162,9 +86,7 @@ Notes:
 - `OPENAI_API_KEY` also works as a fallback.
 - Keep `llm_extra_body` set to `null` for hosted OpenAI-compatible providers such as OpenRouter, OpenAI, Groq, Together, and DeepInfra.
 
-## Build distributables
-
-### Windows executable
+## Build executable
 
 Run on Windows:
 
@@ -176,53 +98,35 @@ Expected output:
 
 - `dist/windows/DictationAssistant.exe`
 
-### macOS app bundle
-
-Run on macOS:
-
-```bash
-chmod +x ./scripts/build_macos.sh
-./scripts/build_macos.sh
-```
-
-Expected output:
-
-- `dist/macos/DictationAssistant.app`
-
 ## Build and release with GitHub Actions
 
-`dist/` is intended to stay local-only and is already gitignored. Do not commit packaged executables or app bundles.
+`dist/` is intended to stay local-only and is already gitignored. Do not commit executables.
 
-### Build Windows and macOS artifacts in Actions
+### Build in Actions
 
-Use the existing `Build and Test` workflow:
+Use the `Build and Release` workflow:
 
-1. Open **GitHub -> Actions -> Build and Test**.
+1. Open **GitHub -> Actions -> Build and Release**.
 2. Click **Run workflow**.
-3. Choose the branch you want to build.
-4. Wait for the `build` job to finish.
-5. Download these artifacts from the run summary:
-   - `DictationAssistant-windows`
-   - `DictationAssistant-macos`
+3. Wait for the `build` job to finish.
+4. Download `DictationAssistant-windows` artifact from the run summary.
 
-This gives you packaged builds for both platforms without committing anything from `dist/`.
+### Automatic release on tag
 
-### Publish a GitHub Release from the workflow output
+Push a tag matching `v*` and the workflow will:
 
-1. Run **Build and Test** manually as above.
-2. Download both uploaded artifacts.
-3. Open **GitHub -> Releases -> Draft a new release**.
-4. Create a tag such as `v0.1.0`.
-5. Upload:
-   - the Windows `DictationAssistant.exe`
-   - the macOS `DictationAssistant.app` (zip it first on macOS if you want a single downloadable file)
-6. Publish the release.
+1. Run tests
+2. Build `DictationAssistant.exe`
+3. Create a GitHub Release with the executable attached
 
-This keeps release binaries in GitHub Releases instead of in the repository.
+Example:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 ### Local rebuild after cleaning generated output
-
-Windows:
 
 ```powershell
 Remove-Item -Recurse -Force .\dist -ErrorAction SilentlyContinue
@@ -230,59 +134,16 @@ Remove-Item -Recurse -Force .\build\windows -ErrorAction SilentlyContinue
 .\scripts\build_windows.ps1
 ```
 
-macOS:
-
-```bash
-rm -rf ./dist ./build/macos
-chmod +x ./scripts/build_macos.sh
-./scripts/build_macos.sh
-```
-
-## Dist folder layout
-
-```text
-dist/
-  windows/
-    DictationAssistant.exe
-  macos/
-    DictationAssistant.app
-```
-
-This repository already contains `dist/macos/README.md` as the target placeholder for the macOS build output. The macOS app bundle itself must be produced on a Mac.
-
 ## Platform dependency manifests
 
 - `requirements/base.txt` — shared runtime dependencies
 - `requirements/windows.txt` — Windows overlay (`keyboard`, `pywin32`)
-- `requirements/macos.txt` — macOS overlay (`pynput`, `pyobjc`)
 - `requirements.txt` — compatibility wrapper pointing to the Windows manifest
 
-## Packaging files
-
-- `packaging/windows/dictation-windows.spec` — Windows PyInstaller spec
-- `packaging/macos/dictation-macos.spec` — macOS PyInstaller spec
-- `dictation.spec` — backward-compatible Windows root spec
-- `scripts/build_windows.ps1` — Windows build script
-- `scripts/build_macos.sh` — macOS build script
-
-## Permissions / platform notes
-
-### Windows
+## Permissions
 
 - Global hotkeys may need elevated privileges in some environments.
 - Clipboard paste injection uses `Ctrl+V` and falls back to Win32 `SendInput`.
-
-### macOS
-
-You will typically need to grant:
-
-- **Microphone** access
-- **Accessibility** access for paste injection and UI scripting
-- possibly **Input Monitoring** depending on the environment/hotkey behavior
-
-If you change any of these permissions while the app is already running, quit it completely and start it again so macOS re-applies the permission state to the process.
-
-macOS packaging should be built on macOS. If you distribute outside your own machine, you may eventually want code signing and notarization.
 
 ## Config
 
@@ -323,7 +184,7 @@ If neither is set, the app falls back to the local placeholder key `local`, whic
 ## Project layout
 
 - `app/main.py` — app orchestration and processing pipeline
-- `app/tray.py` — tray/menu-bar UI and runtime configuration
+- `app/tray.py` — tray UI and runtime configuration
 - `app/hotkeys.py` — shared hotkey gesture state machine
 - `app/platform/` — platform adapters for clipboard, paste, hotkeys, and language detection
 - `app/audio.py` — microphone capture
@@ -331,6 +192,6 @@ If neither is set, the app falls back to the local placeholder key `local`, whic
 - `app/stt.py` — Faster-Whisper transcription
 - `app/llm.py` — vLLM/OpenAI-compatible client
 - `app/logger.py` — console + in-memory logging
-- `packaging/` — platform-specific PyInstaller specs
-- `scripts/` — build scripts for each OS
+- `packaging/` — PyInstaller specs
+- `scripts/` — build scripts
 - `dist/` — generated artifacts

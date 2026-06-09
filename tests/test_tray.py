@@ -163,17 +163,15 @@ class TrayAboutTests(unittest.TestCase):
         root.after.assert_any_call(250, unittest.mock.ANY)
 
     def test_build_about_text_uses_platform_specific_labels(self) -> None:
-        services = SimpleNamespace(key_modes={"right cmd": "restructure", "right shift": "answer"})
+        services = SimpleNamespace(key_modes={"right ctrl": "restructure", "right shift": "answer"})
 
-        with patch("app.tray.get_platform_services", return_value=services), patch(
-            "app.tray.current_platform_name", return_value="macos"
-        ):
+        with patch("app.tray.get_platform_services", return_value=services):
             about = tray_module.build_about_text()
 
-        self.assertIn("macOS dictation assistant", about)
-        self.assertIn("Right Command", about)
+        self.assertIn("Windows dictation assistant", about)
+        self.assertIn("Right Ctrl", about)
         self.assertIn("Right Shift", about)
-        self.assertIn("Command+V", about)
+        self.assertIn("Ctrl+V", about)
         self.assertIn("OpenRouter", about)
         self.assertIn("openai/gpt-oss-120b:free", about)
         self.assertIn("SPEECHTOTEXT_VLLM_API_KEY", about)
