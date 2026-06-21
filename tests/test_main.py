@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
+from app.cancellation import CancellationCoordinator
 from app.config import AppConfig
 from app.main import DictationApp, DictationJob, default_config_path
 
@@ -44,13 +45,16 @@ class DictationAppInitTests(unittest.TestCase):
         )
         recorder = SimpleNamespace(sample_rate=16000)
 
-        with patch("app.main.setup_logging", return_value=MagicMock()), patch(
-            "app.main.get_platform_services", return_value=platform_services
-        ), patch("app.main.AudioRecorder", return_value=recorder), patch(
-            "app.main.VoiceActivityTrimmer"
-        ), patch("app.main.WhisperTranscriber"), patch("app.main.TranscriptCleaner") as cleaner_cls, patch(
-            "app.main.DoublePressHotkeyTracker"
-        ) as tracker_cls, patch("app.main.threading.Thread"):
+        with (
+            patch("app.main.setup_logging", return_value=MagicMock()),
+            patch("app.main.get_platform_services", return_value=platform_services),
+            patch("app.main.AudioRecorder", return_value=recorder),
+            patch("app.main.VoiceActivityTrimmer"),
+            patch("app.main.WhisperTranscriber"),
+            patch("app.main.TranscriptCleaner") as cleaner_cls,
+            patch("app.main.DoublePressHotkeyTracker") as tracker_cls,
+            patch("app.main.threading.Thread"),
+        ):
             DictationApp(config=config, base_dir=Path("C:/Repos/GitHub/SpeechToText-vLLM"))
 
         cleaner_cls.assert_called_once_with(
@@ -68,7 +72,9 @@ class DictationAppInitTests(unittest.TestCase):
         tracker_cls.assert_called_once()
         tracker_kwargs = tracker_cls.call_args.kwargs
         self.assertIs(tracker_kwargs["backend_factory"], platform_services.create_hotkey_backend)
-        self.assertEqual(tracker_kwargs["key_modes"], {"right cmd": "restructure", "right shift": "answer"})
+        self.assertEqual(
+            tracker_kwargs["key_modes"], {"right cmd": "restructure", "right shift": "answer"}
+        )
         self.assertEqual(tracker_kwargs["triple_press_raw_keys"], {"right cmd"})
 
 
@@ -97,10 +103,8 @@ class DictationAppOutputTests(unittest.TestCase):
         app._llm_recheck_event = threading.Event()
         app._llm_available = True
         app.job_queue = queue.Queue()
-        app._cancel_lock = threading.Lock()
+        app._cancellation = CancellationCoordinator()
         app._config_lock = threading.RLock()
-        app._cancel_generation = 0
-        app._processing_generation = None
         app.hotkeys = SimpleNamespace(
             min_hold_seconds=2.0,
             start_delay_seconds=0.2,
@@ -112,7 +116,10 @@ class DictationAppOutputTests(unittest.TestCase):
     def test_deliver_result_inserts_into_active_field(self) -> None:
         app = self._make_app()
 
-        with patch("app.main.inject_text") as inject_text, patch("app.main.copy_to_clipboard") as copy_to_clipboard:
+        with (
+            patch("app.main.inject_text") as inject_text,
+            patch("app.main.copy_to_clipboard") as copy_to_clipboard,
+        ):
             app._deliver_result("hello", output_target="insert")
 
         inject_text.assert_called_once_with("hello")
@@ -121,16 +128,24 @@ class DictationAppOutputTests(unittest.TestCase):
     def test_deliver_result_copies_to_clipboard_for_clipboard_output(self) -> None:
         app = self._make_app()
 
-        with patch("app.main.inject_text") as inject_text, patch("app.main.copy_to_clipboard") as copy_to_clipboard:
+        with (
+            patch("app.main.inject_text") as inject_text,
+            patch("app.main.copy_to_clipboard") as copy_to_clipboard,
+        ):
             app._deliver_result("hello", output_target="clipboard")
 
         inject_text.assert_not_called()
         copy_to_clipboard.assert_called_once_with("hello")
 
-    def test_deliver_result_does_not_copy_twice_after_successful_insert_for_both_output(self) -> None:
+    def test_deliver_result_does_not_copy_twice_after_successful_insert_for_both_output(
+        self,
+    ) -> None:
         app = self._make_app()
 
-        with patch("app.main.inject_text") as inject_text, patch("app.main.copy_to_clipboard") as copy_to_clipboard:
+        with (
+            patch("app.main.inject_text") as inject_text,
+            patch("app.main.copy_to_clipboard") as copy_to_clipboard,
+        ):
             app._deliver_result("hello", output_target="both")
 
         inject_text.assert_called_once_with("hello")
@@ -140,8 +155,9 @@ class DictationAppOutputTests(unittest.TestCase):
         app = self._make_app()
         clipboard_error = RuntimeError("clipboard busy")
 
-        with patch("app.main.inject_text") as inject_text, patch(
-            "app.main.copy_to_clipboard", side_effect=clipboard_error
+        with (
+            patch("app.main.inject_text") as inject_text,
+            patch("app.main.copy_to_clipboard", side_effect=clipboard_error),
         ):
             app._deliver_result("hello", output_target="clipboard")
 
@@ -153,21 +169,25 @@ class DictationAppOutputTests(unittest.TestCase):
         insert_error = RuntimeError("insert failed")
         clipboard_error = RuntimeError("clipboard busy")
 
-        with patch("app.main.inject_text", side_effect=insert_error) as inject_text, patch(
-            "app.main.copy_to_clipboard", side_effect=clipboard_error
+        with (
+            patch("app.main.inject_text", side_effect=insert_error) as inject_text,
+            patch("app.main.copy_to_clipboard", side_effect=clipboard_error),
         ):
             app._deliver_result("hello", output_target="insert")
 
         inject_text.assert_called_once_with("hello")
         app.logger.warning.assert_any_call("Text insertion failed: %s", insert_error)
-        app.logger.warning.assert_any_call("Clipboard copy after insert failure also failed: %s", clipboard_error)
+        app.logger.warning.assert_any_call(
+            "Clipboard copy after insert failure also failed: %s", clipboard_error
+        )
 
     def test_deliver_result_falls_back_to_clipboard_when_insert_fails(self) -> None:
         app = self._make_app()
 
-        with patch("app.main.inject_text", side_effect=RuntimeError("insert failed")) as inject_text, patch(
-            "app.main.copy_to_clipboard"
-        ) as copy_to_clipboard:
+        with (
+            patch("app.main.inject_text", side_effect=RuntimeError("insert failed")) as inject_text,
+            patch("app.main.copy_to_clipboard") as copy_to_clipboard,
+        ):
             app._deliver_result("hello", output_target="insert")
 
         inject_text.assert_called_once_with("hello")
@@ -177,16 +197,35 @@ class DictationAppOutputTests(unittest.TestCase):
         app = self._make_app()
         app.job_queue.put_nowait("job-1")
         app.job_queue.put_nowait("job-2")
-        app._processing_generation = 0
+        app._cancellation.processing_generation = 0
 
         app._on_cancel_requested()
 
-        self.assertEqual(app._get_cancel_generation(), 1)
+        self.assertEqual(app._cancellation.generation(), 1)
         self.assertTrue(app.job_queue.empty())
+
+    def test_cancel_requested_aborts_in_flight_llm_request(self) -> None:
+        app = self._make_app()
+        app._cancellation.processing_generation = 0  # simulate an active job
+
+        app._on_cancel_requested()
+
+        app.cleaner.abort.assert_called_once_with()
+
+    def test_cancel_without_active_job_does_not_abort(self) -> None:
+        app = self._make_app()
+        app.job_queue.put_nowait("job-1")  # queued, but nothing processing
+
+        app._on_cancel_requested()
+
+        app.cleaner.abort.assert_not_called()
 
     def test_process_job_drops_output_after_cancel_requested_during_transcription(self) -> None:
         app = self._make_app()
-        app.transcriber.transcribe.side_effect = lambda audio, sample_rate: (app._on_cancel_requested(), "whisper text")[1]
+        app.transcriber.transcribe.side_effect = lambda audio, sample_rate: (
+            app._on_cancel_requested(),
+            "whisper text",
+        )[1]
         app._transform_transcript = MagicMock(return_value="clean text")
         app._deliver_result = MagicMock()
         job = DictationJob(
@@ -195,14 +234,14 @@ class DictationAppOutputTests(unittest.TestCase):
             mode="restructure",
             output_target="insert",
             skip_llm=False,
-            cancel_generation=app._get_cancel_generation(),
+            cancel_generation=app._cancellation.generation(),
         )
 
         app._process_job(job)
 
         app._transform_transcript.assert_not_called()
         app._deliver_result.assert_not_called()
-        self.assertIsNone(app._processing_generation)
+        self.assertIsNone(app._cancellation.processing_generation)
 
     def test_transform_transcript_uses_whisper_text_when_llm_raises(self) -> None:
         app = self._make_app()
@@ -211,7 +250,9 @@ class DictationAppOutputTests(unittest.TestCase):
         result = app._transform_transcript("whisper text", mode="restructure")
 
         self.assertEqual(result, "whisper text")
-        app.cleaner.clean.assert_called_once_with("whisper text", language=None)
+        app.cleaner.clean.assert_called_once_with(
+            "whisper text", language=None, is_cancelled=None
+        )
         self.assertFalse(app._get_llm_available())
 
     def test_transform_transcript_uses_whisper_text_when_llm_returns_empty(self) -> None:
@@ -221,7 +262,22 @@ class DictationAppOutputTests(unittest.TestCase):
         result = app._transform_transcript("whisper text", mode="answer")
 
         self.assertEqual(result, "whisper text")
-        app.cleaner.answer.assert_called_once_with("whisper text", language=None)
+        app.cleaner.answer.assert_called_once_with(
+            "whisper text", language=None, is_cancelled=None
+        )
+
+    def test_transform_transcript_returns_empty_when_llm_aborted_and_stays_available(self) -> None:
+        app = self._make_app()
+        app.cleaner.clean.side_effect = ConnectionError("aborted by cancel")
+        app._set_llm_available(True)  # LLM is known good before the cancelled call
+
+        result = app._transform_transcript(
+            "whisper text", mode="restructure", is_cancelled=lambda: True
+        )
+
+        self.assertEqual(result, "")
+        # A user cancellation must NOT poison the availability circuit-breaker.
+        self.assertTrue(app._get_llm_available())
 
     def test_transform_transcript_skips_llm_when_requested(self) -> None:
         app = self._make_app()
@@ -261,21 +317,24 @@ class DictationAppOutputTests(unittest.TestCase):
         self.assertFalse(result)
         self.assertFalse(app._get_llm_available())
         app.logger.warning.assert_called_once_with(
-            "LLM server unavailable (%s); retrying in %.1fs",
+            "LLM server at %s unavailable (%s); retrying in %.1fs",
+            app.config.vllm_url,
             app.cleaner.is_model_available.side_effect,
             60.0,
         )
         app.logger.info.assert_not_called()
 
-    def test_update_llm_endpoint_resets_availability_and_wakes_monitor(self) -> None:
+    def test_update_llm_endpoint_reconfigures_cleaner_and_resets_availability(self) -> None:
         app = self._make_app()
-        app.cleaner.client = SimpleNamespace(base_url="http://127.0.0.1:8000/v1")
         app._llm_available = True
 
         app.update_llm_endpoint("http://127.0.0.1:8512/v1")
 
         self.assertEqual(app.config.vllm_url, "http://127.0.0.1:8512/v1")
-        self.assertEqual(app.cleaner.client.base_url, "http://127.0.0.1:8512/v1")
+        app.cleaner.reconfigure.assert_called_once()
+        self.assertEqual(
+            app.cleaner.reconfigure.call_args.kwargs["base_url"], "http://127.0.0.1:8512/v1"
+        )
         self.assertIsNone(app._get_llm_available())
         self.assertTrue(app._llm_recheck_event.is_set())
 
@@ -300,15 +359,13 @@ class DictationAppOutputTests(unittest.TestCase):
         new_config.double_press_window_seconds = 0.7
         new_config.first_press_max_seconds = 0.15
 
-        with patch("app.main.WhisperTranscriber", return_value=MagicMock()) as transcriber_cls, patch(
-            "app.main.TranscriptCleaner", return_value=MagicMock()
-        ) as cleaner_cls:
+        with patch("app.main.WhisperTranscriber", return_value=MagicMock()) as transcriber_cls:
             app.apply_runtime_config(new_config)
 
         self.assertIs(app.config, new_config)
         self.assertEqual(app.recorder.device, 3)
         transcriber_cls.assert_called_once_with("medium", "ru", "cpu", "int8")
-        cleaner_cls.assert_called_once_with(
+        app.cleaner.reconfigure.assert_called_once_with(
             base_url="https://example.test/v1",
             api_key="reloaded-key",
             model_name="reloaded-model",
@@ -327,13 +384,27 @@ class DictationAppOutputTests(unittest.TestCase):
         self.assertIsNone(app._get_llm_available())
         self.assertTrue(app._llm_recheck_event.is_set())
 
+    def test_set_language_updates_config_and_transcriber(self) -> None:
+        app = self._make_app()
+        app.set_language("ru")
+        self.assertEqual(app.config.language_mode, "ru")
+        self.assertEqual(app.transcriber.language_mode, "ru")
+
+    def test_set_microphone_updates_config_and_recorder(self) -> None:
+        app = self._make_app()
+        app.set_microphone(2)
+        self.assertEqual(app.config.microphone_device, 2)
+        self.assertEqual(app.recorder.device, 2)
+
 
 class MainConfigPathTests(unittest.TestCase):
     def test_default_config_path_on_windows_uses_appdata(self) -> None:
-        with patch("app.main.sys.platform", "win32"), patch("app.main.os.getenv", return_value=r"C:\Users\tester\AppData\Roaming"):
+        with patch("app.main.os.getenv", return_value=r"C:\Users\tester\AppData\Roaming"):
             path = default_config_path()
 
-        self.assertEqual(path, Path(r"C:\Users\tester\AppData\Roaming\SpeechToText-vLLM\config.json"))
+        self.assertEqual(
+            path, Path(r"C:\Users\tester\AppData\Roaming\SpeechToText-vLLM\config.json")
+        )
 
 
 if __name__ == "__main__":

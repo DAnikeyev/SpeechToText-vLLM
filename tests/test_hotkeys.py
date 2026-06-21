@@ -3,8 +3,7 @@ from __future__ import annotations
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app.hotkeys import DoublePressHotkeyTracker
 
@@ -88,7 +87,9 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         stops: list[tuple[float, str, str, bool]] = []
         tracker = DoublePressHotkeyTracker(
             on_record_start=lambda mode, output, skip_llm: starts.append((mode, output, skip_llm)),
-            on_record_stop=lambda hold, mode, output, skip_llm: stops.append((hold, mode, output, skip_llm)),
+            on_record_stop=lambda hold, mode, output, skip_llm: stops.append(
+                (hold, mode, output, skip_llm)
+            ),
             min_hold_seconds=2.0,
             start_delay_seconds=0.0,
             double_press_window_seconds=0.5,
@@ -105,7 +106,9 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         stops: list[tuple[float, str, str, bool]] = []
         tracker = DoublePressHotkeyTracker(
             on_record_start=lambda mode, output, skip_llm: starts.append((mode, output, skip_llm)),
-            on_record_stop=lambda hold, mode, output, skip_llm: stops.append((hold, mode, output, skip_llm)),
+            on_record_stop=lambda hold, mode, output, skip_llm: stops.append(
+                (hold, mode, output, skip_llm)
+            ),
             min_hold_seconds=2.0,
             start_delay_seconds=0.0,
             first_press_max_seconds=0.05,
@@ -131,7 +134,9 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         stops: list[tuple[float, str, str, bool]] = []
         tracker = DoublePressHotkeyTracker(
             on_record_start=lambda mode, output, skip_llm: starts.append((mode, output, skip_llm)),
-            on_record_stop=lambda hold, mode, output, skip_llm: stops.append((hold, mode, output, skip_llm)),
+            on_record_stop=lambda hold, mode, output, skip_llm: stops.append(
+                (hold, mode, output, skip_llm)
+            ),
             min_hold_seconds=2.0,
             start_delay_seconds=0.0,
             first_press_max_seconds=0.05,
@@ -157,7 +162,9 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         stops: list[tuple[float, str, str, bool]] = []
         tracker = DoublePressHotkeyTracker(
             on_record_start=lambda mode, output, skip_llm: starts.append((mode, output, skip_llm)),
-            on_record_stop=lambda hold, mode, output, skip_llm: stops.append((hold, mode, output, skip_llm)),
+            on_record_stop=lambda hold, mode, output, skip_llm: stops.append(
+                (hold, mode, output, skip_llm)
+            ),
             min_hold_seconds=2.0,
             start_delay_seconds=0.0,
             first_press_max_seconds=0.05,

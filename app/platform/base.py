@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Protocol
-
+from typing import Protocol
 
 ClipboardCopy = Callable[[str], None]
 TextInject = Callable[[str], None]
@@ -19,11 +19,9 @@ GlobalHotkeyHandler = Callable[[HotkeyEvent], None]
 
 
 class GlobalHotkeyBackend(Protocol):
-    def start(self, handler: GlobalHotkeyHandler) -> None:
-        ...
+    def start(self, handler: GlobalHotkeyHandler) -> None: ...
 
-    def stop(self) -> None:
-        ...
+    def stop(self) -> None: ...
 
 
 HotkeyBackendFactory = Callable[[], GlobalHotkeyBackend]
@@ -38,6 +36,3 @@ class PlatformServices:
     create_hotkey_backend: HotkeyBackendFactory
     key_modes: dict[str, str]
     triple_press_raw_keys: set[str]
-
-
-

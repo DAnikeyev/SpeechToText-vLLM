@@ -1,1 +1,1 @@
-hiddenimports = ['webrtcvad']
+hiddenimports = ["webrtcvad"]

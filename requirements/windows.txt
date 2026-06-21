@@ -1,4 +1,0 @@
--r base.txt
-keyboard>=0.13.5
-pywin32>=306
-

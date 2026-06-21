@@ -18,4 +18,3 @@ def get_platform_services(platform: str | None = None) -> PlatformServices:
 
 def current_platform_name() -> str:
     return get_platform_services().name
-

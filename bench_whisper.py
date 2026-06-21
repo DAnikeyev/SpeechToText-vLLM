@@ -2,27 +2,16 @@
 
 from __future__ import annotations
 
-import os
+import tempfile
 import time
 import wave
-import tempfile
 from pathlib import Path
 
 import numpy as np
-
-try:
-    import nvidia.cublas
-    import nvidia.cuda_runtime
-    import nvidia.cuda_nvrtc
-
-    _cublas_bin = os.path.join(list(nvidia.cublas.__path__)[0], "bin")
-    _cudart_bin = os.path.join(list(nvidia.cuda_runtime.__path__)[0], "bin")
-    _nvrtc_bin = os.path.join(list(nvidia.cuda_nvrtc.__path__)[0], "bin")
-    os.environ["PATH"] = _cublas_bin + ";" + _cudart_bin + ";" + _nvrtc_bin + ";" + os.environ["PATH"]
-except Exception:
-    pass
-
 from faster_whisper import WhisperModel
+
+from app.audio import float_to_pcm16
+from app.cuda_bootstrap import ensure_cuda_libs_on_path
 
 SAMPLE_RATE = 16_000
 DURATION_SECONDS = 10
@@ -52,10 +41,9 @@ def generate_speech_like_audio(duration: float, sample_rate: int) -> np.ndarray:
 
 
 def save_temp_wav(audio: np.ndarray, sample_rate: int) -> Path:
-    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    path = Path(tmp.name)
-    tmp.close()
-    pcm16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        path = Path(tmp.name)
+    pcm16 = float_to_pcm16(audio)
     with wave.open(str(path), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
@@ -64,14 +52,12 @@ def save_temp_wav(audio: np.ndarray, sample_rate: int) -> Path:
     return path
 
 
-def benchmark(
-    model_name: str, device: str, compute_type: str, wav_path: Path
-) -> list[float]:
+def benchmark(model_name: str, device: str, compute_type: str, wav_path: Path) -> list[float]:
     model = WhisperModel(model_name, device=device, compute_type=compute_type)
     times: list[float] = []
     for i in range(NUM_RUNS):
         start = time.perf_counter()
-        segments, info = model.transcribe(str(wav_path), language="en")
+        segments, _ = model.transcribe(str(wav_path), language="en")
         _ = list(segments)
         elapsed = time.perf_counter() - start
         times.append(elapsed)
@@ -81,10 +67,8 @@ def benchmark(
 
 
 def main() -> None:
-    print(
-        "Generating %ds speech-like audio at %dHz..."
-        % (DURATION_SECONDS, SAMPLE_RATE)
-    )
+    ensure_cuda_libs_on_path()
+    print("Generating %ds speech-like audio at %dHz..." % (DURATION_SECONDS, SAMPLE_RATE))
     audio = generate_speech_like_audio(DURATION_SECONDS, SAMPLE_RATE)
     wav_path = save_temp_wav(audio, SAMPLE_RATE)
     print("WAV saved to %s" % wav_path)

@@ -1,0 +1,5 @@
+# Development tooling. Install on top of requirements/windows.txt.
+ruff>=0.6.0
+mypy>=1.11.0
+coverage>=7.5.0
+pyinstaller>=6.0.0

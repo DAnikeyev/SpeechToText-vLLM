@@ -4,12 +4,12 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import app.platform.windows as windows_platform
 from app.clipboard import copy_to_clipboard
 from app.inject import inject_text
 from app.platform import get_platform_services
 from app.platform.base import HotkeyEvent
 from app.stt import detect_keyboard_language
-import app.platform.windows as windows_platform
 
 
 class PlatformDispatchTests(unittest.TestCase):
@@ -74,9 +74,10 @@ class WindowsPlatformTests(unittest.TestCase):
             CloseClipboard=MagicMock(),
         )
 
-        with patch.object(windows_platform, "win32clipboard", clipboard_module), patch(
-            "app.platform.windows.time.sleep"
-        ) as sleep:
+        with (
+            patch.object(windows_platform, "win32clipboard", clipboard_module),
+            patch("app.platform.windows.time.sleep") as sleep,
+        ):
             windows_platform.copy_to_clipboard("hello")
 
         self.assertEqual(clipboard_module.OpenClipboard.call_count, 2)
@@ -95,11 +96,15 @@ class WindowsPlatformTests(unittest.TestCase):
         )
 
         monotonic_values = iter([0.0, 0.4])
-        with patch.object(windows_platform, "win32clipboard", clipboard_module), patch(
-            "app.platform.windows.time.monotonic", side_effect=lambda: next(monotonic_values)
-        ), patch("app.platform.windows.time.sleep"):
-            with self.assertRaisesRegex(RuntimeError, "Timed out waiting for the Windows clipboard"):
-                windows_platform.copy_to_clipboard("hello")
+        with (
+            patch.object(windows_platform, "win32clipboard", clipboard_module),
+            patch(
+                "app.platform.windows.time.monotonic", side_effect=lambda: next(monotonic_values)
+            ),
+            patch("app.platform.windows.time.sleep"),
+            self.assertRaisesRegex(RuntimeError, "Timed out waiting for the Windows clipboard"),
+        ):
+            windows_platform.copy_to_clipboard("hello")
 
         clipboard_module.EmptyClipboard.assert_not_called()
         clipboard_module.SetClipboardData.assert_not_called()
@@ -107,8 +112,3 @@ class WindowsPlatformTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-
-

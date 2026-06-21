@@ -108,13 +108,11 @@ def copy_to_clipboard(text: str) -> None:
         raise RuntimeError("pywin32 is required for clipboard access on Windows")
 
     deadline = time.monotonic() + CLIPBOARD_OPEN_RETRY_SECONDS
-    last_error: Exception | None = None
     while True:
         try:
             win32clipboard.OpenClipboard()
             break
         except Exception as exc:
-            last_error = exc
             if time.monotonic() >= deadline:
                 raise RuntimeError(
                     "Timed out waiting for the Windows clipboard. Another app may be holding it open."
@@ -181,7 +179,7 @@ def detect_input_language() -> str | None:
         if res:
             return buf.value.lower()
     except Exception:
-        pass
+        logger.debug("Could not detect foreground keyboard language", exc_info=True)
     return None
 
 
@@ -198,7 +196,3 @@ SERVICES = PlatformServices(
     key_modes={"right ctrl": "restructure", "right shift": "answer"},
     triple_press_raw_keys={"right ctrl"},
 )
-
-
-
-

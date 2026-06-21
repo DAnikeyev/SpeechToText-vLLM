@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections import deque
 import logging
 import threading
+from collections import deque
+from dataclasses import dataclass
 
 from app.platform import current_platform_name
 
@@ -36,14 +37,31 @@ class PlatformContextFilter(logging.Filter):
         return True
 
 
-def setup_logging(level: str = "INFO") -> logging.Logger:
+@dataclass
+class LoggingComponents:
+    """Bundle returned by setup_logging so callers hold a real reference to the
+    in-memory handler instead of monkey-patching it onto the stdlib Logger."""
+
+    logger: logging.Logger
+    memory_handler: InMemoryLogHandler
+
+
+def _find_memory_handler(logger: logging.Logger) -> InMemoryLogHandler | None:
+    for handler in logger.handlers:
+        if isinstance(handler, InMemoryLogHandler):
+            return handler
+    return None
+
+
+def setup_logging(level: str = "INFO") -> LoggingComponents:
     logger = logging.getLogger("dictation")
-    if logger.handlers:
-        return logger
+    existing = _find_memory_handler(logger)
+    if existing is not None:
+        return LoggingComponents(logger=logger, memory_handler=existing)
 
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
     platform_filter = PlatformContextFilter(current_platform_name())
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(platform_name)s | %(message)s")
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
 
     handler = logging.StreamHandler()
     handler.addFilter(platform_filter)
@@ -54,7 +72,6 @@ def setup_logging(level: str = "INFO") -> logging.Logger:
     memory_handler.addFilter(platform_filter)
     memory_handler.setFormatter(formatter)
     logger.addHandler(memory_handler)
-    logger.memory_handler = memory_handler  # type: ignore[attr-defined]
 
     logger.propagate = False
-    return logger
+    return LoggingComponents(logger=logger, memory_handler=memory_handler)

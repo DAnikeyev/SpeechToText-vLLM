@@ -126,7 +126,7 @@ class DoublePressHotkeyTracker:
             name = event.name.lower()
             event_type = event.event_type.lower()
         else:
-            name = ((getattr(event, "name", "") or "").lower())
+            name = (getattr(event, "name", "") or "").lower()
             event_type = str(getattr(event, "event_type", "")).lower()
         if not name or event_type not in {"down", "up"}:
             return None
@@ -151,7 +151,9 @@ class DoublePressHotkeyTracker:
         if stop_info is not None:
             self.on_record_stop(stop_info[0], stop_info[1], stop_info[2], stop_info[3])
 
-    def _on_key_down_locked(self, key: str, ks: _KeyState, timestamp: float) -> tuple[str, str, bool] | None:
+    def _on_key_down_locked(
+        self, key: str, ks: _KeyState, timestamp: float
+    ) -> tuple[str, str, bool] | None:
         if ks.phase == _Phase.IDLE:
             ks.phase = _Phase.HELD
             ks.press_time = timestamp
@@ -167,7 +169,9 @@ class DoublePressHotkeyTracker:
 
         return None
 
-    def _on_key_up_locked(self, key: str, ks: _KeyState, timestamp: float) -> tuple[float, str, str, bool] | None:
+    def _on_key_up_locked(
+        self, key: str, ks: _KeyState, timestamp: float
+    ) -> tuple[float, str, str, bool] | None:
         if ks.phase == _Phase.HELD:
             self._cancel_key_timer_locked(ks)
             hold_time = timestamp - ks.press_time

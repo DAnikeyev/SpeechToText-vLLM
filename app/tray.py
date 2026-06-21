@@ -1,23 +1,24 @@
 from __future__ import annotations
 
-import json
+import logging
+import sys
 import threading
-import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
-from tkinter import scrolledtext, simpledialog
-
-import sys
-
-import sounddevice as sd
-from PIL import Image, ImageEnhance, ImageOps
+from typing import TYPE_CHECKING
 
 import pystray
+import sounddevice as sd
+from PySide6 import QtCore, QtWidgets
 
+from app.config import AppConfig, save_config
+from app.config_watcher import ConfigWatcher
+from app.dialogs import LLMCompatibilityDialog, LLMUrlDialog, ModelPickerDialog, TextWindow
+from app.icons import tint_icon
 from app.platform import get_platform_services
 
-_ICON_PATH = Path(__file__).parent / "mic.ico"
-_BASE_ICON: Image.Image | None = None
+if TYPE_CHECKING:
+    from app.main import DictationApp
 
 
 def _format_hotkey_name(name: str) -> str:
@@ -57,72 +58,11 @@ LLM defaults
 - Compatibility presets: Hosted OpenAI-compatible, Ollama, and vLLM / Qwen
 
 Tips
-- The icon is green when active and red when paused.
+- The icon is green when active, yellow while processing (transcribing/LLM), and red when paused.
 - Open the system tray icon to change microphone, language, LLM server URL, or compatibility preset.
 - Press Backspace while processing to cancel the current analysis/output.
 - Text insertion pastes from the clipboard (Ctrl+V) for better editor compatibility.
 """
-
-
-def _fit_icon_to_canvas(img: Image.Image, margin: int = 0) -> Image.Image:
-    rgba = img.convert("RGBA")
-    alpha = rgba.getchannel("A")
-    bbox = alpha.getbbox()
-    if bbox is None:
-        return rgba
-
-    left, top, right, bottom = bbox
-    if (left, top, right, bottom) == (0, 0, rgba.width, rgba.height):
-        return rgba
-
-    cropped = rgba.crop(bbox)
-    target_width = max(1, rgba.width - margin * 2)
-    target_height = max(1, rgba.height - margin * 2)
-    scale = min(target_width / cropped.width, target_height / cropped.height)
-    resized = cropped.resize(
-        (max(1, int(round(cropped.width * scale))), max(1, int(round(cropped.height * scale)))),
-        Image.Resampling.LANCZOS,
-    )
-
-    fitted = Image.new("RGBA", rgba.size, (0, 0, 0, 0))
-    offset_x = (rgba.width - resized.width) // 2
-    offset_y = (rgba.height - resized.height) // 2
-    fitted.paste(resized, (offset_x, offset_y), resized)
-    return fitted
-
-
-def _resolve_icon_path() -> Path:
-    if getattr(sys, 'frozen', False):
-        return Path(sys._MEIPASS) / "app" / "mic.ico"
-    return Path(__file__).parent / "mic.ico"
-
-
-def _load_base_icon() -> Image.Image:
-    global _BASE_ICON
-    if _BASE_ICON is None:
-        _BASE_ICON = _fit_icon_to_canvas(Image.open(_resolve_icon_path()))
-    return _BASE_ICON
-
-
-def _tint_icon(paused: bool = False) -> Image.Image:
-    img = _load_base_icon().copy()
-    alpha = img.getchannel("A")
-    luminance = ImageOps.grayscale(img)
-
-    if paused:
-        dark_color = (90, 20, 20)
-        light_color = (220, 50, 50)
-    else:
-        dark_color = (20, 60, 30)
-        light_color = (50, 200, 80)
-
-    tinted = ImageOps.colorize(luminance, black=dark_color, white=light_color).convert("RGBA")
-    tinted.putalpha(alpha)
-
-    enhancer = ImageEnhance.Color(tinted)
-    tinted = enhancer.enhance(1.4 if paused else 1.2)
-
-    return tinted
 
 
 def _list_input_devices() -> list[tuple[int, str]]:
@@ -133,22 +73,36 @@ def _list_input_devices() -> list[tuple[int, str]]:
             result.append((i, d["name"]))
     return result
 
+from app.llm import fetch_model_names
+
+_logger = logging.getLogger(__name__)
+
+
+class _DialogInvoker(QtCore.QObject):
+    show_url_dialog = QtCore.Signal()
+    show_compat_dialog = QtCore.Signal()
+    show_text_window = QtCore.Signal(str, str, str, object, int)
+
 
 class TrayApp:
-    def __init__(self, *, config_path: Path) -> None:
-        from app.config import load_config
-        from app.main import DictationApp
-
+    def __init__(self, *, app: DictationApp, config_path: Path) -> None:
+        self._app = app
         self._config_path = config_path
-        self._config = load_config(config_path)
-        self._app = DictationApp(config=self._config, base_dir=config_path.parent)
         self._paused = False
         self._ctrl_enabled = True
         self._shift_enabled = True
         self._icon: pystray.Icon | None = None
-        self._config_reload_stop = threading.Event()
-        self._config_reload_thread: threading.Thread | None = None
-        self._config_mtime_ns = self._get_config_mtime_ns()
+        self._config_watcher = ConfigWatcher(
+            config_path=config_path,
+            get_current=lambda: self._app.config,
+            apply=self._apply_config,
+            logger=self._app.logger,
+        )
+        self._qt_app: QtWidgets.QApplication | None = None
+        self._qt_thread: threading.Thread | None = None
+        self._qt_invoker: _DialogInvoker | None = None
+        self._open_windows: list[QtWidgets.QWidget] = []
+        self._named_windows: dict[str, QtWidgets.QWidget] = {}
 
     def run(self) -> None:
         self._app.logger.info("Starting dictation assistant (tray mode)")
@@ -164,10 +118,15 @@ class TrayApp:
                 "Failed to start global hotkeys; running in paused mode so the app stays open: %s",
                 exc,
             )
-        self._start_config_reload_watcher()
+        self._config_watcher.start()
+        self._icon_refresh_thread = threading.Thread(target=self._icon_refresh_loop, daemon=True, name="icon-refresh")
+        self._icon_refresh_thread.start()
+
+        self._start_qt()
+
         icon = pystray.Icon(
             "dictation",
-            icon=_tint_icon(paused=self._paused),
+            icon=tint_icon(paused=self._paused),
             title="Dictation Assistant",
             menu=self._build_menu(),
         )
@@ -175,85 +134,75 @@ class TrayApp:
         try:
             icon.run()
         finally:
-            self._config_reload_stop.set()
+            self._stop_qt()
+            self._config_watcher.stop()
             if hotkeys_started:
                 self._app.hotkeys.stop()
             self._app.shutdown()
 
-    def _get_config_mtime_ns(self) -> int | None:
-        try:
-            return self._config_path.stat().st_mtime_ns
-        except OSError:
-            return None
+    def _start_qt(self) -> None:
+        self._qt_ready = threading.Event()
+        self._qt_thread = threading.Thread(target=self._qt_main, daemon=True, name="qt-event-loop")
+        self._qt_thread.start()
+        self._qt_ready.wait()
 
-    def _start_config_reload_watcher(self) -> None:
-        if self._config_reload_thread is not None and self._config_reload_thread.is_alive():
-            return
-        self._config_reload_stop.clear()
-        self._config_reload_thread = threading.Thread(
-            target=self._watch_config_reload_loop,
-            daemon=True,
-            name="config-reload-watcher",
-        )
-        self._config_reload_thread.start()
+    def _qt_main(self) -> None:
+        self._qt_app = QtWidgets.QApplication(sys.argv)
+        self._qt_app.setQuitOnLastWindowClosed(False)
 
-    def _watch_config_reload_loop(self) -> None:
-        while not self._config_reload_stop.wait(timeout=1.0):
-            self._reload_config_if_needed()
+        self._qt_invoker = _DialogInvoker()
+        self._qt_invoker.show_url_dialog.connect(self._show_url_dialog_qt)
+        self._qt_invoker.show_compat_dialog.connect(self._show_compat_dialog_qt)
+        self._qt_invoker.show_text_window.connect(self._show_text_window_qt)
 
-    def _reload_config_if_needed(self) -> bool:
-        current_mtime_ns = self._get_config_mtime_ns()
-        if current_mtime_ns is None or current_mtime_ns == self._config_mtime_ns:
-            return False
+        self._qt_ready.set()
+        self._qt_app.exec()
 
-        try:
-            from app.config import load_config
+    def _stop_qt(self) -> None:
+        if self._qt_app:
+            self._qt_app.quit()
+        if self._qt_thread and self._qt_thread.is_alive():
+            self._qt_thread.join(timeout=2)
 
-            updated_config = load_config(self._config_path)
-        except (OSError, json.JSONDecodeError) as exc:
-            self._app.logger.warning("Config reload skipped; file is not ready yet: %s", exc)
-            return False
-
-        self._config_mtime_ns = current_mtime_ns
-        if updated_config.to_dict() == self._config.to_dict():
-            return False
-
-        self._apply_config(updated_config)
-        return True
-
-    def _apply_config(self, config) -> None:
-        self._config = config
+    def _apply_config(self, config: AppConfig) -> None:
         self._app.apply_runtime_config(config)
         self._refresh_menu()
 
     def _build_menu(self) -> pystray.Menu:
-        current_device = self._config.microphone_device
+        current_device = self._app.config.microphone_device
         labels = _hotkey_labels()
 
         def make_mic_items() -> list[pystray.MenuItem]:
             devices = _list_input_devices()
             items: list[pystray.MenuItem] = []
-            items.append(pystray.MenuItem(
-                "Default",
-                lambda _icon, _item: self._set_mic(None),
-                checked=lambda _item: current_device is None,
-            ))
+            items.append(
+                pystray.MenuItem(
+                    "Default",
+                    lambda _icon, _item: self._set_mic(None),
+                    checked=lambda _item: current_device is None,
+                )
+            )
             for idx, name in devices:
+
                 def _make_select(dev_idx: int):
                     def _handler(_icon, _item):
                         self._set_mic(dev_idx)
+
                     return _handler
 
                 def _make_checked(dev_idx: int, cur_dev):
                     def _check(_item):
                         return cur_dev == dev_idx
+
                     return _check
 
-                items.append(pystray.MenuItem(
-                    f"{idx}: {name[:40]}",
-                    _make_select(idx),
-                    checked=_make_checked(idx, current_device),
-                ))
+                items.append(
+                    pystray.MenuItem(
+                        f"{idx}: {name[:40]}",
+                        _make_select(idx),
+                        checked=_make_checked(idx, current_device),
+                    )
+                )
             return items
 
         def make_lang_items() -> list[pystray.MenuItem]:
@@ -261,25 +210,29 @@ class TrayApp:
             builtin = [("Auto", "auto"), ("Auto-detected", "auto-detected")]
             all_langs = builtin + [
                 (entry.get("label", entry["code"]), entry["code"])
-                for entry in self._config.languages
+                for entry in self._app.config.languages
             ]
             for label, code in all_langs:
 
                 def _make_lang_select(lang_code: str):
                     def _handler(_icon, _item):
                         self._set_language(lang_code)
+
                     return _handler
 
                 def _make_lang_checked(lang_code: str):
                     def _check(_item):
-                        return self._config.language_mode == lang_code
+                        return self._app.config.language_mode == lang_code
+
                     return _check
 
-                items.append(pystray.MenuItem(
-                    label,
-                    _make_lang_select(code),
-                    checked=_make_lang_checked(code),
-                ))
+                items.append(
+                    pystray.MenuItem(
+                        label,
+                        _make_lang_select(code),
+                        checked=_make_lang_checked(code),
+                    )
+                )
             return items
 
         return pystray.Menu(
@@ -334,7 +287,16 @@ class TrayApp:
 
     def _update_icon_image(self) -> None:
         if self._icon:
-            self._icon.icon = _tint_icon(paused=self._paused)
+            self._icon.icon = tint_icon(paused=self._paused, processing=self._app._processing)
+
+    def _icon_refresh_loop(self) -> None:
+        """Periodically update the tray icon to reflect the current processing state."""
+        prev_processing = self._app._processing
+        while not self._app.stop_event.is_set():
+            self._app.stop_event.wait(timeout=0.25)
+            if self._app._processing != prev_processing:
+                prev_processing = self._app._processing
+                self._update_icon_image()
 
     def _toggle_ctrl(self, _icon, _item) -> None:
         self._ctrl_enabled = not self._ctrl_enabled
@@ -347,126 +309,77 @@ class TrayApp:
         self._refresh_menu()
 
     def _set_language(self, code: str) -> None:
-        self._config.language_mode = code
-        self._app.transcriber.language_mode = code
+        self._app.set_language(code)
         self._save_config()
         self._refresh_menu()
 
     def _set_mic(self, device: int | None) -> None:
-        self._config.microphone_device = device
-        self._app.recorder.device = device
+        self._app.set_microphone(device)
         self._save_config()
         self._refresh_menu()
 
     def _configure_vllm_url(self, _icon, _item) -> None:
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
+        if self._qt_invoker:
+            self._qt_invoker.show_url_dialog.emit()
+
+    def _show_url_dialog_qt(self) -> None:
+        existing = self._named_windows.get("llm-url")
+        if isinstance(existing, QtWidgets.QDialog):
+            self._present_window(existing)
+            return
+
+        dialog = LLMUrlDialog(None, self._app.config.vllm_url)
+        self._register_window(dialog, key="llm-url")
+        if self._show_modal_dialog(dialog) != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+
+        new_url = dialog.normalized_url
+        self._app.update_llm_endpoint(new_url)
+
+        # Try to fetch models from the new endpoint so the user can pick one.
+        model_names: list[str] = []
         try:
-            result = simpledialog.askstring(
-                "LLM Server URL",
-                "Enter LLM server URL:",
-                initialvalue=self._config.vllm_url,
-                parent=root,
+            model_names = fetch_model_names(new_url)
+        except Exception as exc:
+            _logger.warning(
+                "Could not fetch model list from %s: %s", new_url, exc
             )
-        finally:
-            root.quit()
-            root.destroy()
-        if result is not None and result.strip():
-            normalized = result.strip() + ("/v1" if not result.strip().endswith("/v1") else "")
-            self._app.update_llm_endpoint(normalized)
-            self._save_config()
+
+        if model_names:
+            picker = ModelPickerDialog(
+                None,
+                model_names=model_names,
+                current_model=self._app.config.model_name,
+            )
+            self._register_window(picker, key="llm-url")
+            if self._show_modal_dialog(picker) == QtWidgets.QDialog.DialogCode.Accepted:
+                self._app.config.model_name = picker.result_model
+                self._app._reconfigure_cleaner()
+
+        self._save_config()
 
     def _configure_llm_compatibility(self, _icon, _item) -> None:
-        import json
-        from tkinter import messagebox
+        if self._qt_invoker:
+            self._qt_invoker.show_compat_dialog.emit()
 
-        _PRESETS = {
-            "Hosted OpenAI-compatible (OpenRouter default)": {"extra_body": None, "strict": True},
-            "Ollama": {"extra_body": None, "strict": False},
-            "vLLM / Qwen": {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}, "strict": True},
-        }
+    def _show_compat_dialog_qt(self) -> None:
+        existing = self._named_windows.get("llm-compat")
+        if isinstance(existing, QtWidgets.QDialog):
+            self._present_window(existing)
+            return
 
-        def _guess_preset():
-            current_extra = self._config.llm_extra_body
-            current_strict = self._config.llm_strict_model_name_match
-            for label, cfg in _PRESETS.items():
-                if current_strict == cfg["strict"] and current_extra == cfg["extra_body"]:
-                    return label
-            return "Custom"
-
-        root = tk.Tk()
-        root.title("LLM Compatibility")
-        root.attributes("-topmost", True)
-        root.resizable(False, False)
-
-        tk.Label(root, text="Server preset:", anchor="w").pack(fill="x", padx=12, pady=(12, 0))
-        preset_var = tk.StringVar(value=_guess_preset())
-        preset_options = list(_PRESETS.keys()) + ["Custom"]
-        preset_menu = tk.OptionMenu(root, preset_var, *preset_options)
-        preset_menu.pack(fill="x", padx=12, pady=(0, 8))
-
-        strict_var = tk.BooleanVar(value=self._config.llm_strict_model_name_match)
-        strict_check = tk.Checkbutton(root, text="Exact model name match", variable=strict_var, anchor="w")
-        strict_check.pack(fill="x", padx=12, pady=(0, 8))
-
-        tk.Label(root, text="Extra request body JSON:", anchor="w").pack(fill="x", padx=12, pady=(0, 0))
-        text_widget = scrolledtext.ScrolledText(root, wrap=tk.WORD, width=50, height=8, padx=8, pady=8)
-        text_widget.pack(fill="both", expand=True, padx=12, pady=(0, 8))
-
-        def _on_preset_change(*_):
-            label = preset_var.get()
-            if label in _PRESETS:
-                cfg = _PRESETS[label]
-                strict_var.set(cfg["strict"])
-                text_widget.configure(state=tk.NORMAL)
-                text_widget.delete("1.0", tk.END)
-                text_widget.insert("1.0", json.dumps(cfg["extra_body"], indent=2) if cfg["extra_body"] else "")
-                text_widget.configure(state=tk.DISABLED)
-            else:
-                text_widget.configure(state=tk.NORMAL)
-
-        preset_var.trace_add("write", _on_preset_change)
-
-        if preset_var.get() == "Custom":
-            text_widget.insert("1.0", json.dumps(self._config.llm_extra_body, indent=2) if self._config.llm_extra_body else "")
-        else:
-            _on_preset_change()
-
-        def _save():
-            label = preset_var.get()
-            strict = strict_var.get()
-            if label in _PRESETS:
-                extra_body = _PRESETS[label]["extra_body"]
-            else:
-                raw = text_widget.get("1.0", tk.END).strip()
-                if not raw:
-                    extra_body = None
-                else:
-                    try:
-                        extra_body = json.loads(raw)
-                        if not isinstance(extra_body, dict):
-                            messagebox.showerror("Invalid JSON", "Extra body must be a JSON object.", parent=root)
-                            return
-                    except json.JSONDecodeError as exc:
-                        messagebox.showerror("Invalid JSON", f"Failed to parse extra body:\n{exc}", parent=root)
-                        return
-
-            self._config.llm_strict_model_name_match = strict
-            self._config.llm_extra_body = extra_body
-            self._app.update_llm_settings(extra_body=extra_body, strict_model_name_match=strict)
+        dialog = LLMCompatibilityDialog(
+            None,
+            current_extra_body=self._app.config.llm_extra_body,
+            current_strict=self._app.config.llm_strict_model_name_match,
+        )
+        self._register_window(dialog, key="llm-compat")
+        if self._show_modal_dialog(dialog) == QtWidgets.QDialog.DialogCode.Accepted:
+            self._app.update_llm_settings(
+                extra_body=dialog.result_extra_body,
+                strict_model_name_match=dialog.result_strict,
+            )
             self._save_config()
-            root.destroy()
-
-        def _cancel():
-            root.destroy()
-
-        btn_frame = tk.Frame(root)
-        btn_frame.pack(fill="x", padx=12, pady=(0, 12))
-        tk.Button(btn_frame, text="Cancel", command=_cancel, width=10).pack(side=tk.RIGHT, padx=(4, 0))
-        tk.Button(btn_frame, text="Save", command=_save, width=10).pack(side=tk.RIGHT)
-
-        root.mainloop()
 
     def _show_text_window(
         self,
@@ -477,98 +390,60 @@ class TrayApp:
         content_provider: Callable[[], str] | None = None,
         refresh_interval_ms: int = 1000,
     ) -> None:
-        threading.Thread(
-            target=self._run_text_window,
-            kwargs={
-                "title": title,
-                "text_content": text_content,
-                "geometry": geometry,
-                "content_provider": content_provider,
-                "refresh_interval_ms": refresh_interval_ms,
-            },
-            daemon=True,
-            name=f"{title}-window",
-        ).start()
+        if self._qt_invoker:
+            self._qt_invoker.show_text_window.emit(
+                title, text_content, geometry, content_provider, refresh_interval_ms
+            )
 
-    def _run_text_window(
+    def _show_text_window_qt(
         self,
-        *,
         title: str,
         text_content: str,
-        geometry: str = "560x360",
-        content_provider: Callable[[], str] | None = None,
-        refresh_interval_ms: int = 1000,
+        geometry: str,
+        content_provider: Callable[[], str] | None,
+        refresh_interval_ms: int,
     ) -> None:
-        root = tk.Tk()
-        root.title(title)
-        root.resizable(True, True)
-        root.geometry(geometry)
-        root.minsize(420, 240)
-        root.attributes("-topmost", True)
+        existing = self._named_windows.get(title)
+        if isinstance(existing, QtWidgets.QWidget):
+            self._present_window(existing)
+            return
 
-        def _clear_topmost() -> None:
-            try:
-                if root.winfo_exists():
-                    root.attributes("-topmost", False)
-            except tk.TclError:
-                pass
+        window = TextWindow(
+            None,
+            title=title,
+            text_content=text_content,
+            geometry=geometry,
+            content_provider=content_provider,
+            refresh_interval_ms=refresh_interval_ms,
+        )
+        self._register_window(window, key=title)
+        self._present_window(window)
 
-        root.after(250, _clear_topmost)
+    def _register_window(self, window: QtWidgets.QWidget, key: str | None = None) -> None:
+        self._open_windows.append(window)
+        window.destroyed.connect(lambda *_: self._forget_window(window))
+        if key is not None:
+            self._named_windows[key] = window
+            window.destroyed.connect(lambda *_: self._forget_named_window(key, window))
 
-        def _close_window() -> None:
-            try:
-                root.quit()
-            except tk.TclError:
-                pass
-            try:
-                if root.winfo_exists():
-                    root.destroy()
-            except tk.TclError:
-                pass
+    def _forget_window(self, window: QtWidgets.QWidget) -> None:
+        self._open_windows = [
+            open_window for open_window in self._open_windows if open_window is not window
+        ]
 
-        root.protocol("WM_DELETE_WINDOW", _close_window)
+    def _forget_named_window(self, key: str, window: QtWidgets.QWidget) -> None:
+        if self._named_windows.get(key) is window:
+            self._named_windows.pop(key, None)
 
-        text = scrolledtext.ScrolledText(root, wrap=tk.WORD, padx=12, pady=12)
-        text.pack(fill=tk.BOTH, expand=True)
+    def _present_window(self, window: QtWidgets.QWidget) -> None:
+        window.show()
+        if window.isMinimized():
+            window.showNormal()
+        window.raise_()
+        window.activateWindow()
 
-        current_content = ""
-
-        def _refresh_text() -> None:
-            nonlocal current_content
-            try:
-                if not root.winfo_exists():
-                    return
-            except tk.TclError:
-                return
-
-            next_content = content_provider() if content_provider is not None else text_content
-            if next_content != current_content:
-                yview = text.yview()
-                should_follow_end = yview[1] >= 0.999 if current_content else True
-                text.configure(state=tk.NORMAL)
-                text.delete("1.0", tk.END)
-                text.insert("1.0", next_content)
-                text.configure(state=tk.DISABLED)
-                if should_follow_end:
-                    text.see(tk.END)
-                else:
-                    text.yview_moveto(yview[0])
-                current_content = next_content
-
-            if content_provider is not None:
-                try:
-                    if root.winfo_exists():
-                        root.after(refresh_interval_ms, _refresh_text)
-                except tk.TclError:
-                    return
-
-        _refresh_text()
-
-        button_frame = tk.Frame(root)
-        button_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
-        tk.Button(button_frame, text="Close", command=_close_window, width=10).pack(side=tk.RIGHT)
-
-        root.mainloop()
+    def _show_modal_dialog(self, dialog: QtWidgets.QDialog) -> int:
+        return dialog.exec()
 
     def _show_about(self, _icon, _item) -> None:
         self._show_text_window(title="About SpeechToText-vLLM", text_content=build_about_text())
@@ -604,12 +479,11 @@ class TrayApp:
             self._icon.stop()
 
     def _save_config(self) -> None:
-        from app.config import save_config
-        save_config(self._config_path, self._config)
-        self._config_mtime_ns = self._get_config_mtime_ns()
+        save_config(self._config_path, self._app.config)
+        self._config_watcher.mark_current()
 
     def _get_recent_logs_text(self) -> str:
-        memory_handler = getattr(self._app.logger, "memory_handler", None)
+        memory_handler = getattr(self._app, "memory_handler", None)
         if memory_handler is None:
             return "Recent log storage is not available."
 

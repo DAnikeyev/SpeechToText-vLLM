@@ -7,7 +7,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_RESTRUCTURE_PROMPT = """You are a transcription cleanup engine.
 
 The user has dictated speech. Your ONLY job is to transform that raw dictated speech into clean, readable text.
@@ -64,18 +63,47 @@ class AppConfig:
     debug_wav_dir: str = "debug_recordings"
     llm_strict_model_name_match: bool = True
     llm_extra_body: dict[str, Any] | None = None
-    languages: list[dict[str, str]] = field(default_factory=lambda: [
-        {"label": "English", "code": "en"},
-        {"label": "Russian", "code": "ru"},
-    ])
+    languages: list[dict[str, str]] = field(
+        default_factory=lambda: [
+            {"label": "English", "code": "en"},
+            {"label": "Russian", "code": "ru"},
+        ]
+    )
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AppConfig":
+    def from_dict(cls, data: dict[str, Any]) -> AppConfig:
         known = {k: v for k, v in data.items() if k in cls.__annotations__}
-        return cls(**known)
+        config = cls(**known)
+        config.validate()
+        return config
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def validate(self) -> None:
+        """Raise ValueError if any field has an unusable value.
+
+        Called when loading from disk so a malformed config surfaces a clear
+        error instead of failing cryptically inside the pipeline.
+        """
+        if not self.vllm_url.strip():
+            raise ValueError("vllm_url must not be empty")
+        if self.min_hold_seconds < 0:
+            raise ValueError("min_hold_seconds must be >= 0")
+        if self.record_start_delay_seconds < 0:
+            raise ValueError("record_start_delay_seconds must be >= 0")
+        if self.double_press_window_seconds <= 0:
+            raise ValueError("double_press_window_seconds must be > 0")
+        if self.first_press_max_seconds <= 0:
+            raise ValueError("first_press_max_seconds must be > 0")
+        if self.max_tokens <= 0:
+            raise ValueError("max_tokens must be > 0")
+        if self.temperature < 0:
+            raise ValueError("temperature must be >= 0")
+        if self.llm_timeout_seconds <= 0:
+            raise ValueError("llm_timeout_seconds must be > 0")
+        if self.llm_availability_check_interval_seconds <= 0:
+            raise ValueError("llm_availability_check_interval_seconds must be > 0")
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -93,7 +121,9 @@ def load_config(path: str | Path) -> AppConfig:
 def save_config(path: str | Path, config: AppConfig) -> None:
     config_path = Path(path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{config_path.stem}-", suffix=".tmp", dir=config_path.parent)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{config_path.stem}-", suffix=".tmp", dir=config_path.parent
+    )
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fp:

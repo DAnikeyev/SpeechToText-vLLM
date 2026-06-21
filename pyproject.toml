@@ -1,0 +1,71 @@
+# Tooling configuration only. Runtime dependencies live in requirements/*.txt
+# and the app is run via `python -m app.main`, not installed as a package.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["build", "dist", ".idea", ".junie"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes (unused imports, undefined names)
+    "I",    # isort (import sorting)
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "PIE",  # flake8-pie
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",   # line too long — the formatter wraps what it can; unbreakable strings/URLs are acceptable
+    "B008",   # function call in default argument (used intentionally for dataclass factories / threading primitives)
+    "SIM108", # ternary instead of if/else — explicit branches are often clearer here
+    "UP031",  # printf-style formatting — intentional for lazy `logging` interpolation (logger.info("%s", x))
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # tests sometimes rearrange imports after monkeypatching
+"app/platform/windows.py" = ["RUF012"]  # ctypes structures require class-level `_fields_` lists
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.11"
+# Baseline that passes on the current code; tighten over time.
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+# `warn_unreachable` produces false positives here: `sys.platform != "win32"` guards
+# and `if WhisperModel is None` (optional import) are flagged because mypy narrows them
+# away under our single-platform assumption.
+warn_unreachable = false
+files = ["app"]
+
+[[tool.mypy.overrides]]
+# Win32 ctypes shims are intentionally dynamic; don't let them block the type-check.
+module = "app.platform.windows"
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+# The frameless-panel mixin is a bare class combined with QDialog at runtime, so mypy
+# cannot resolve the inherited QWidget methods. Revisit when the dialog layer is refactored.
+module = "app.dialogs"
+disable_error_code = ["attr-defined", "arg-type"]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+show_missing = true
+skip_covered = true
+fail_under = 50

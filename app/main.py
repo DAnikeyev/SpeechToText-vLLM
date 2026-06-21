@@ -1,9 +1,39 @@
+"""Dictation app orchestration and processing pipeline.
+
+Threading model
+---------------
+The app runs several cooperating threads, coordinated via shared state and
+locks rather than message passing:
+
+- ``worker`` (``_worker_loop``): drains ``job_queue`` and runs the pipeline
+  (VAD -> Whisper -> LLM -> deliver) for one job at a time.
+- ``llm_monitor`` (``_llm_monitor_loop``): polls the LLM endpoint and maintains
+  the availability tri-state (True / False / None = unknown) used as a
+  circuit-breaker by ``_transform_transcript``.
+- hotkey backend: the ``keyboard`` library's own thread invokes
+  ``_handle_event``, which calls the ``on_record_*`` / ``on_cancel`` callbacks.
+- Qt event loop + pystray loop: owned by TrayApp (dialogs and tray menu).
+
+Concurrency notes
+-----------------
+- Cancellation uses a monotonic generation (``CancellationCoordinator``); a
+  Backspace press bumps it and drains the queue, so in-flight and queued jobs
+  are invalidated together.
+- ``apply_runtime_config`` rebuilds the transcriber/cleaner in place under
+  ``_config_lock``. The worker re-reads ``self.transcriber`` / ``self.cleaner``
+  at call time, so a reload mid-pipeline may swap them; reference assignment is
+  atomic under the GIL, so a job observes either the old or the new object,
+  never a half-built one.
+- ``_llm_available`` is guarded by ``_llm_status_lock``; ``_llm_recheck_event``
+  wakes the monitor whenever availability is reset to unknown.
+"""
+
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import queue
-import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -12,7 +42,8 @@ from typing import Any
 
 import numpy as np
 
-from app.audio import AudioRecorder, rms
+from app.audio import AudioRecorder, pcm16_to_float, rms
+from app.cancellation import CancellationCoordinator
 from app.clipboard import copy_to_clipboard
 from app.config import AppConfig, load_config
 from app.hotkeys import DoublePressHotkeyTracker
@@ -38,15 +69,16 @@ class DictationApp:
     def __init__(self, config: AppConfig, base_dir: Path) -> None:
         self.config = config
         self.base_dir = base_dir
-        self.logger = setup_logging()
+        log_components = setup_logging()
+        self.logger = log_components.logger
+        self.memory_handler = log_components.memory_handler
         self.stop_event = threading.Event()
         self._llm_recheck_event = threading.Event()
         self._llm_status_lock = threading.Lock()
         self._llm_available: bool | None = None
         self.job_queue: queue.Queue[DictationJob] = queue.Queue(maxsize=1)
-        self._cancel_lock = threading.Lock()
-        self._cancel_generation = 0
-        self._processing_generation: int | None = None
+        self._cancellation = CancellationCoordinator()
+        self._processing = False
         self._config_lock = threading.RLock()
         platform_services = get_platform_services()
 
@@ -85,17 +117,6 @@ class DictationApp:
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)
         self.llm_monitor = threading.Thread(target=self._llm_monitor_loop, daemon=True)
 
-    def run(self) -> None:
-        self.logger.info("Starting dictation assistant")
-        self.worker.start()
-        self.llm_monitor.start()
-        self.hotkeys.start()
-
-        while not self.stop_event.is_set():
-            time.sleep(0.1)
-
-        self.hotkeys.stop()
-
     def shutdown(self) -> None:
         self.logger.info("Shutting down dictation assistant")
         self.stop_event.set()
@@ -103,10 +124,7 @@ class DictationApp:
 
     def update_llm_endpoint(self, base_url: str) -> None:
         self.config.vllm_url = base_url
-        self.cleaner.client.base_url = base_url
-        with self._llm_status_lock:
-            self._llm_available = None
-        self._llm_recheck_event.set()
+        self._reconfigure_cleaner()
 
     def update_llm_settings(
         self,
@@ -115,11 +133,37 @@ class DictationApp:
     ) -> None:
         self.config.llm_extra_body = extra_body
         self.config.llm_strict_model_name_match = strict_model_name_match
-        self.cleaner.extra_body = extra_body
-        self.cleaner.strict_model_name_match = strict_model_name_match
+        self._reconfigure_cleaner()
+
+    def _reconfigure_cleaner(self) -> None:
+        """Push the current config into the LLM cleaner in place and schedule a
+        fresh availability check."""
+        config = self.config
+        self.cleaner.reconfigure(
+            base_url=config.vllm_url,
+            api_key=config.llm_api_key,
+            model_name=config.model_name,
+            restructure_prompt=config.restructure_prompt,
+            answer_prompt=config.answer_prompt,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            timeout_seconds=config.llm_timeout_seconds,
+            extra_body=config.llm_extra_body,
+            strict_model_name_match=config.llm_strict_model_name_match,
+        )
         with self._llm_status_lock:
             self._llm_available = None
         self._llm_recheck_event.set()
+
+    def set_language(self, code: str) -> None:
+        """Apply a language-mode change from the tray to the config + transcriber."""
+        self.config.language_mode = code
+        self.transcriber.language_mode = code
+
+    def set_microphone(self, device: int | str | None) -> None:
+        """Apply a microphone change from the tray to the config + recorder."""
+        self.config.microphone_device = device
+        self.recorder.device = device
 
     def apply_runtime_config(self, config: AppConfig) -> None:
         with self._config_lock:
@@ -160,21 +204,7 @@ class DictationApp:
                 )
             )
             if cleaner_needs_rebuild:
-                self.cleaner = TranscriptCleaner(
-                    base_url=config.vllm_url,
-                    api_key=config.llm_api_key,
-                    model_name=config.model_name,
-                    restructure_prompt=config.restructure_prompt,
-                    answer_prompt=config.answer_prompt,
-                    temperature=config.temperature,
-                    max_tokens=config.max_tokens,
-                    timeout_seconds=config.llm_timeout_seconds,
-                    extra_body=config.llm_extra_body,
-                    strict_model_name_match=config.llm_strict_model_name_match,
-                )
-                with self._llm_status_lock:
-                    self._llm_available = None
-                self._llm_recheck_event.set()
+                self._reconfigure_cleaner()
 
             self.hotkeys.min_hold_seconds = config.min_hold_seconds
             self.hotkeys.start_delay_seconds = config.record_start_delay_seconds
@@ -195,7 +225,9 @@ class DictationApp:
         except Exception as exc:
             self.logger.exception("Failed to start recording: %s", exc)
 
-    def _on_record_stop(self, hold_seconds: float, mode: str, output_target: str, skip_llm: bool) -> None:
+    def _on_record_stop(
+        self, hold_seconds: float, mode: str, output_target: str, skip_llm: bool
+    ) -> None:
         self.logger.info(
             "Recording stopped, hold %.2fs (mode: %s, output: %s, skip_llm: %s)",
             hold_seconds,
@@ -224,15 +256,13 @@ class DictationApp:
             mode=mode,
             output_target=output_target,
             skip_llm=skip_llm,
-            cancel_generation=self._get_cancel_generation(),
+            cancel_generation=self._cancellation.generation(),
         )
         try:
             self.job_queue.put_nowait(job)
         except queue.Full:
-            try:
+            with contextlib.suppress(queue.Empty):
                 self.job_queue.get_nowait()
-            except queue.Empty:
-                pass
             try:
                 self.job_queue.put_nowait(job)
                 self.logger.warning(
@@ -241,34 +271,16 @@ class DictationApp:
             except queue.Full:
                 self.logger.warning("Dropped recording: pipeline busy")
 
-    def _get_cancel_generation(self) -> int:
-        with self._cancel_lock:
-            return self._cancel_generation
-
-    def _is_cancelled(self, job: DictationJob) -> bool:
-        return job.cancel_generation != self._get_cancel_generation()
-
-    def _set_processing_generation(self, generation: int | None) -> None:
-        with self._cancel_lock:
-            self._processing_generation = generation
-
     def _on_cancel_requested(self) -> None:
-        drained = 0
-        with self._cancel_lock:
-            self._cancel_generation += 1
-            processing = self._processing_generation is not None
-
-        while True:
-            try:
-                self.job_queue.get_nowait()
-                drained += 1
-            except queue.Empty:
-                break
-
-        if processing or drained:
+        was_processing, drained = self._cancellation.request_cancel(self.job_queue)
+        # Interrupt any in-flight LLM HTTP request so the worker thread winds
+        # down promptly instead of blocking until the request timeout.
+        if was_processing:
+            self.cleaner.abort()
+        if was_processing or drained:
             self.logger.info(
                 "Cancellation requested via Backspace (processing=%s, dropped_queued_jobs=%d)",
-                processing,
+                was_processing,
                 drained,
             )
 
@@ -296,8 +308,12 @@ class DictationApp:
                 return
             if self._get_llm_available() is True:
                 continue
-            if self.stop_event.wait(timeout=self.config.llm_availability_check_interval_seconds):
-                return
+            # Sleep on _llm_recheck_event rather than stop_event so that
+            # _reconfigure_cleaner() (which sets _llm_recheck_event) can
+            # wake the monitor immediately for a fresh availability check
+            # instead of waiting up to 60 s.
+            self._llm_recheck_event.wait(timeout=self.config.llm_availability_check_interval_seconds)
+            self._llm_recheck_event.clear()
 
     def _get_llm_available(self) -> bool | None:
         with self._llm_status_lock:
@@ -318,7 +334,8 @@ class DictationApp:
         except Exception as exc:
             self._set_llm_available(False)
             self.logger.warning(
-                "LLM server unavailable (%s); retrying in %.1fs",
+                "LLM server at %s unavailable (%s); retrying in %.1fs",
+                self.config.vllm_url,
                 exc,
                 self.config.llm_availability_check_interval_seconds,
             )
@@ -327,22 +344,24 @@ class DictationApp:
         previous = self._set_llm_available(available)
         if available:
             if previous is not True:
-                self.logger.info("LLM model is available again")
+                self.logger.info("LLM model '%s' is available on %s", self.config.model_name, self.config.vllm_url)
             return True
 
         self.logger.warning(
-            "Configured LLM model '%s' is unavailable; retrying in %.1fs",
+            "LLM model '%s' not found on %s; retrying in %.1fs",
             self.config.model_name,
+            self.config.vllm_url,
             self.config.llm_availability_check_interval_seconds,
         )
         return False
 
     def _process_job(self, job: DictationJob) -> None:
-        if self._is_cancelled(job):
+        if self._cancellation.is_cancelled(job.cancel_generation):
             self.logger.info("Skipped job: cancelled before processing started")
             return
 
-        self._set_processing_generation(job.cancel_generation)
+        self._processing = True
+        self._cancellation.begin(job.cancel_generation)
         self.logger.info(
             "Processing recording (mode: %s, output: %s, skip_llm: %s)",
             job.mode,
@@ -358,15 +377,15 @@ class DictationApp:
                 if trimmed.size == 0:
                     self.logger.info("Ignored: VAD detected silence")
                     return
-                audio = (trimmed.astype(np.float32) / 32767.0).clip(-1.0, 1.0)
+                audio = pcm16_to_float(trimmed)
 
-            if self._is_cancelled(job):
+            if self._cancellation.is_cancelled(job.cancel_generation):
                 self.logger.info("Cancelled before transcription completed")
                 return
 
             self.logger.info("Transcribing audio (%.1fs)...", job.hold_seconds)
             transcript = self.transcriber.transcribe(audio, sample_rate=self.recorder.sample_rate)
-            if self._is_cancelled(job):
+            if self._cancellation.is_cancelled(job.cancel_generation):
                 self.logger.info("Cancelled after transcription; dropping result")
                 return
             if not transcript:
@@ -374,36 +393,69 @@ class DictationApp:
                 return
 
             self.logger.info("Raw transcript: %s", transcript)
-            result = self._transform_transcript(transcript, mode=job.mode, skip_llm=job.skip_llm)
-            if self._is_cancelled(job):
+            result = self._transform_transcript(
+                transcript,
+                mode=job.mode,
+                skip_llm=job.skip_llm,
+                is_cancelled=lambda: self._cancellation.is_cancelled(job.cancel_generation),
+            )
+            if self._cancellation.is_cancelled(job.cancel_generation):
                 self.logger.info("Cancelled after transformation; not delivering output")
                 return
 
             if result:
                 self._deliver_result(result, output_target=job.output_target)
         finally:
-            self._set_processing_generation(None)
+            self._cancellation.end()
+            self._processing = False
 
-    def _transform_transcript(self, transcript: str, mode: str, skip_llm: bool = False) -> str:
+    def _transform_transcript(
+        self,
+        transcript: str,
+        mode: str,
+        skip_llm: bool = False,
+        is_cancelled: Any = None,
+    ) -> str:
+        def _cancelled() -> bool:
+            return is_cancelled is not None and is_cancelled()
+
         if skip_llm:
             self.logger.info("Skipping LLM and using raw transcript for fast clipboard output")
             return transcript
 
         if self._get_llm_available() is not True:
-            self.logger.info("Skipping LLM because the last availability check reported it unavailable")
+            self.logger.info(
+                "Skipping LLM because the last availability check reported it unavailable"
+            )
             return transcript
 
         language = getattr(getattr(self, "transcriber", None), "last_language", None)
         self.logger.info("Sending transcript to LLM (%s)...", self.config.vllm_url)
         try:
             if mode == "answer":
-                candidate = self.cleaner.answer(transcript, language=language)
+                candidate = self.cleaner.answer(
+                    transcript, language=language, is_cancelled=is_cancelled
+                )
             else:
-                candidate = self.cleaner.clean(transcript, language=language)
+                candidate = self.cleaner.clean(
+                    transcript, language=language, is_cancelled=is_cancelled
+                )
         except Exception as exc:
-            self.logger.warning("LLM request failed, using raw transcript until recovery check succeeds: %s", exc)
+            # abort() interrupts the stream mid-request and surfaces as a
+            # connection error; treat that as a clean cancel, not a failure,
+            # so we don't wrongly mark the LLM unavailable.
+            if _cancelled():
+                self.logger.info("LLM request cancelled by user")
+                return ""
+            self.logger.warning(
+                "LLM request failed, using raw transcript until recovery check succeeds: %s", exc
+            )
             self._set_llm_available(False)
             return transcript
+
+        if _cancelled():
+            self.logger.info("LLM request cancelled by user")
+            return ""
 
         if not candidate or not candidate.strip():
             self.logger.warning("LLM returned an empty response, using raw transcript")
@@ -426,13 +478,19 @@ class DictationApp:
                 if output_target == "insert":
                     try:
                         copy_to_clipboard(result)
-                        self.logger.info("Copied %d characters to clipboard after insert failure", len(result))
+                        self.logger.info(
+                            "Copied %d characters to clipboard after insert failure", len(result)
+                        )
                     except Exception as clipboard_exc:
-                        self.logger.warning("Clipboard copy after insert failure also failed: %s", clipboard_exc)
+                        self.logger.warning(
+                            "Clipboard copy after insert failure also failed: %s", clipboard_exc
+                        )
 
         if output_target in ("clipboard", "both"):
             if inserted and output_target == "both":
-                self.logger.debug("Skipped duplicate clipboard write because insertion already populated the clipboard")
+                self.logger.debug(
+                    "Skipped duplicate clipboard write because insertion already populated the clipboard"
+                )
                 return
             try:
                 copy_to_clipboard(result)
@@ -442,7 +500,9 @@ class DictationApp:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Local push-to-talk dictation assistant (system tray app)")
+    parser = argparse.ArgumentParser(
+        description="Local push-to-talk dictation assistant (system tray app)"
+    )
     parser.add_argument(
         "--config",
         default=None,
@@ -460,14 +520,22 @@ def default_config_path() -> Path:
 
 def main() -> None:
     args = parse_args()
-    config_path = Path(args.config).expanduser().resolve() if args.config else default_config_path().resolve()
+    config_path = (
+        Path(args.config).expanduser().resolve() if args.config else default_config_path().resolve()
+    )
 
-    logger = setup_logging()
+    logger = setup_logging().logger
     logger.info("Using config file: %s", config_path)
-    logger.info("Launching tray UI; look for the microphone icon in the system tray or menu bar area.")
+    logger.info(
+        "Launching tray UI; look for the microphone icon in the system tray or menu bar area."
+    )
+
+    config = load_config(config_path)
+    app = DictationApp(config=config, base_dir=config_path.parent)
 
     from app.tray import TrayApp
-    tray = TrayApp(config_path=config_path)
+
+    tray = TrayApp(app=app, config_path=config_path)
     tray.run()
 
 

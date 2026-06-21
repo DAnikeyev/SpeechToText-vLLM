@@ -9,7 +9,9 @@ from app.audio import AudioRecorder, rms
 
 
 class _FakeInputStream:
-    def __init__(self, *, samplerate, channels, dtype, device, blocksize=None, callback=None) -> None:
+    def __init__(
+        self, *, samplerate, channels, dtype, device, blocksize=None, callback=None
+    ) -> None:
         self.samplerate = samplerate
         self.channels = channels
         self.dtype = dtype
@@ -19,7 +21,6 @@ class _FakeInputStream:
         self.started = False
         self.stopped = False
         self.closed = False
-        self.read_calls = 0
         self._frames = [
             np.array([[0.1], [0.2]], dtype=np.float32),
             np.array([[0.3], [0.4]], dtype=np.float32),
@@ -36,12 +37,6 @@ class _FakeInputStream:
 
     def close(self) -> None:
         self.closed = True
-
-    def read(self, _frames: int):
-        self.read_calls += 1
-        if self._frames:
-            return self._frames.pop(0), False
-        raise RuntimeError("stream stopped")
 
 
 class AudioRecorderTests(unittest.TestCase):
@@ -117,23 +112,30 @@ class AudioRecorderTests(unittest.TestCase):
         self.assertEqual(result.shape, (0,))
         self.assertEqual(result.dtype, np.float32)
 
-    def test_read_loop_sets_stop_event_when_read_fails(self) -> None:
-        stream = _FakeInputStream(
-            samplerate=16000,
-            channels=1,
-            dtype="float32",
-            device=None,
-            blocksize=1024,
-            callback=None,
-        )
-        recorder = AudioRecorder()
-        recorder._stream = stream
-        stream._frames.clear()
+    def test_start_sets_stop_event_when_a_capture_callback_fails(self) -> None:
+        created: list[_FakeInputStream] = []
 
-        recorder._read_loop()
+        def _factory(*, samplerate, channels, dtype, device, blocksize, callback):
+            stream = _FakeInputStream(
+                samplerate=samplerate,
+                channels=channels,
+                dtype=dtype,
+                device=device,
+                blocksize=blocksize,
+                callback=callback,
+            )
+            # 1-D array makes ``indata[:, 0]`` raise, exercising the callback error path.
+            stream._frames = [np.array([0.1, 0.2], dtype=np.float32)]
+            created.append(stream)
+            return stream
+
+        with patch("app.audio.sd") as sd_module:
+            sd_module.InputStream.side_effect = _factory
+            recorder = AudioRecorder()
+            recorder.start()
 
         self.assertTrue(recorder._stop_event.is_set())
-        self.assertIsInstance(recorder._read_exception, RuntimeError)
+        recorder.stop()
 
     def test_rms_handles_empty_and_non_empty_audio(self) -> None:
         self.assertEqual(rms(np.zeros((0,), dtype=np.float32)), 0.0)
@@ -142,4 +144,3 @@ class AudioRecorderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -34,6 +34,10 @@ MANIFEST
 *.spec
 !packaging/**/*.spec
 
+# App runtime config (auto-created with defaults if missing). Ship the example instead.
+/config.json
+/debug_recordings/
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
@@ -218,3 +222,4 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+/.junie
