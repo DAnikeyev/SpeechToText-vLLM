@@ -15,6 +15,7 @@ from app.config import AppConfig, save_config
 from app.config_watcher import ConfigWatcher
 from app.dialogs import LLMCompatibilityDialog, LLMUrlDialog, ModelPickerDialog, TextWindow
 from app.icons import tint_icon
+from app.llm import fetch_model_names
 from app.platform import get_platform_services
 
 if TYPE_CHECKING:
@@ -73,7 +74,6 @@ def _list_input_devices() -> list[tuple[int, str]]:
             result.append((i, d["name"]))
     return result
 
-from app.llm import fetch_model_names
 
 _logger = logging.getLogger(__name__)
 
@@ -119,7 +119,9 @@ class TrayApp:
                 exc,
             )
         self._config_watcher.start()
-        self._icon_refresh_thread = threading.Thread(target=self._icon_refresh_loop, daemon=True, name="icon-refresh")
+        self._icon_refresh_thread = threading.Thread(
+            target=self._icon_refresh_loop, daemon=True, name="icon-refresh"
+        )
         self._icon_refresh_thread.start()
 
         self._start_qt()
@@ -341,9 +343,7 @@ class TrayApp:
         try:
             model_names = fetch_model_names(new_url)
         except Exception as exc:
-            _logger.warning(
-                "Could not fetch model list from %s: %s", new_url, exc
-            )
+            _logger.warning("Could not fetch model list from %s: %s", new_url, exc)
 
         if model_names:
             picker = ModelPickerDialog(

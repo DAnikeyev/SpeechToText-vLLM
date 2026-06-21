@@ -46,9 +46,7 @@ class NormalizeLlmUrlTests(unittest.TestCase):
         self.assertEqual(
             normalize_llm_url("https://localhost:8512/v1"), "https://localhost:8512/v1"
         )
-        self.assertEqual(
-            normalize_llm_url("https://localhost:8512"), "https://localhost:8512/v1"
-        )
+        self.assertEqual(normalize_llm_url("https://localhost:8512"), "https://localhost:8512/v1")
 
 
 if __name__ == "__main__":

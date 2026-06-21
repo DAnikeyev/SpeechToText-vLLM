@@ -6,8 +6,9 @@ import ssl
 from collections.abc import Callable
 from urllib.parse import urlsplit, urlunsplit
 
-from app.llm import fetch_model_names
 from PySide6 import QtCore, QtGui, QtWidgets
+
+from app.llm import fetch_model_names
 
 _logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ def normalize_llm_url(raw_url: str) -> str:
 
 class _CheckLLMSignal(QtCore.QObject):
     """Signal bundle emitted by :class:`_CheckLLMWorker`."""
+
     finished = QtCore.Signal(bool, str, list)  # success, message, model_names
 
 
@@ -51,7 +53,7 @@ class _CheckLLMWorker(QtCore.QRunnable):
         self.setAutoDelete(True)
         self.signals = _CheckLLMSignal()
 
-    def run(self) -> None:  # noqa: D401
+    def run(self) -> None:
         try:
             all_names = fetch_model_names(self.base_url, timeout_seconds=10.0)
             short = all_names[:5]

@@ -312,7 +312,9 @@ class DictationApp:
             # _reconfigure_cleaner() (which sets _llm_recheck_event) can
             # wake the monitor immediately for a fresh availability check
             # instead of waiting up to 60 s.
-            self._llm_recheck_event.wait(timeout=self.config.llm_availability_check_interval_seconds)
+            self._llm_recheck_event.wait(
+                timeout=self.config.llm_availability_check_interval_seconds
+            )
             self._llm_recheck_event.clear()
 
     def _get_llm_available(self) -> bool | None:
@@ -344,7 +346,11 @@ class DictationApp:
         previous = self._set_llm_available(available)
         if available:
             if previous is not True:
-                self.logger.info("LLM model '%s' is available on %s", self.config.model_name, self.config.vllm_url)
+                self.logger.info(
+                    "LLM model '%s' is available on %s",
+                    self.config.model_name,
+                    self.config.vllm_url,
+                )
             return True
 
         self.logger.warning(

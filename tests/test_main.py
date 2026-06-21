@@ -250,9 +250,7 @@ class DictationAppOutputTests(unittest.TestCase):
         result = app._transform_transcript("whisper text", mode="restructure")
 
         self.assertEqual(result, "whisper text")
-        app.cleaner.clean.assert_called_once_with(
-            "whisper text", language=None, is_cancelled=None
-        )
+        app.cleaner.clean.assert_called_once_with("whisper text", language=None, is_cancelled=None)
         self.assertFalse(app._get_llm_available())
 
     def test_transform_transcript_uses_whisper_text_when_llm_returns_empty(self) -> None:
@@ -262,9 +260,7 @@ class DictationAppOutputTests(unittest.TestCase):
         result = app._transform_transcript("whisper text", mode="answer")
 
         self.assertEqual(result, "whisper text")
-        app.cleaner.answer.assert_called_once_with(
-            "whisper text", language=None, is_cancelled=None
-        )
+        app.cleaner.answer.assert_called_once_with("whisper text", language=None, is_cancelled=None)
 
     def test_transform_transcript_returns_empty_when_llm_aborted_and_stays_available(self) -> None:
         app = self._make_app()

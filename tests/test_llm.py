@@ -142,9 +142,7 @@ class TranscriptCleanerTests(unittest.TestCase):
         return cleaner
 
     def _delta_chunk(self, text: str | None) -> SimpleNamespace:
-        return SimpleNamespace(
-            choices=[SimpleNamespace(delta=SimpleNamespace(content=text))]
-        )
+        return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=text))])
 
     def test_generate_streams_and_assembles_content(self) -> None:
         create = MagicMock(
