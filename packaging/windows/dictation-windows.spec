@@ -12,12 +12,34 @@ REPO_ROOT = Path(SPECPATH).resolve().parents[1]
 # that PyInstaller cannot discover by static analysis. collect_all gathers them.
 _pyside_datas, _pyside_binaries, _pyside_hiddenimports = collect_all("PySide6")
 
+# ctranslate2 (faster-whisper backend) + the NVIDIA CUDA 12 runtime wheels it loads
+# at runtime (cublas64_12.dll, cudart, nvrtc). These wheels are declared explicitly
+# in requirements/windows.txt — they are NOT transitive deps of faster-whisper — so
+# without collecting them the frozen exe raises "Library cublas64_12.dll is not found"
+# at transcription. collect_all preserves the nvidia/<pkg>/bin layout that
+# app.cuda_bootstrap relies on to put the DLLs on PATH at startup.
+_ct2_datas, _ct2_binaries, _ct2_hiddenimports = collect_all("ctranslate2")
+_nv_cublas_d, _nv_cublas_b, _nv_cublas_h = collect_all("nvidia.cublas")
+_nv_rt_d, _nv_rt_b, _nv_rt_h = collect_all("nvidia.cuda_runtime")
+_nv_nvrtc_d, _nv_nvrtc_b, _nv_nvrtc_h = collect_all("nvidia.cuda_nvrtc")
+
 
 a = Analysis(
     [str(REPO_ROOT / 'app' / 'main.py')],
     pathex=[str(REPO_ROOT)],
-    binaries=_pyside_binaries,
-    datas=[(str(REPO_ROOT / 'app' / 'mic.ico'), 'app')] + _pyside_datas,
+    binaries=(
+        _pyside_binaries
+        + _ct2_binaries
+        + _nv_cublas_b
+        + _nv_rt_b
+        + _nv_nvrtc_b
+    ),
+    datas=[(str(REPO_ROOT / 'app' / 'mic.ico'), 'app')]
+    + _pyside_datas
+    + _ct2_datas
+    + _nv_cublas_d
+    + _nv_rt_d
+    + _nv_nvrtc_d,
     hiddenimports=[
         'app',
         'app.main',
@@ -50,7 +72,19 @@ a = Analysis(
         'faster_whisper',
         'keyboard',
         'win32clipboard',
-    ] + _pyside_hiddenimports,
+        # CUDA backend for faster-whisper; the bulk of these packages is collected
+        # via collect_all above (binaries + datas + this hidden-import list).
+        'ctranslate2',
+        'nvidia',
+        'nvidia.cublas',
+        'nvidia.cuda_runtime',
+        'nvidia.cuda_nvrtc',
+    ]
+    + _pyside_hiddenimports
+    + _ct2_hiddenimports
+    + _nv_cublas_h
+    + _nv_rt_h
+    + _nv_nvrtc_h,
     hookspath=[str(REPO_ROOT / 'hooks')],
     runtime_hooks=[],
     excludes=[],

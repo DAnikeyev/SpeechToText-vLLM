@@ -2,3 +2,12 @@
 keyboard>=0.13.5
 pywin32>=306
 
+# NVIDIA CUDA 12 runtime wheels. These are NOT transitive deps of faster-whisper or
+# ctranslate2, but ctranslate2 loads cublas64_12.dll / cudart / nvrtc at runtime.
+# Declared explicitly so the PyInstaller build can collect them; without them the
+# frozen exe fails to transcribe ("Library cublas64_12.dll is not found").
+# Pinned to the versions verified working locally.
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cuda-runtime-cu12==12.9.79
+nvidia-cuda-nvrtc-cu12==12.9.86
+
