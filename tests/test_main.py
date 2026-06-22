@@ -41,7 +41,7 @@ class DictationAppInitTests(unittest.TestCase):
         platform_services = SimpleNamespace(
             create_hotkey_backend=MagicMock(name="create_hotkey_backend"),
             key_modes={"right cmd": "restructure", "right shift": "answer"},
-            triple_press_raw_keys={"right cmd"},
+            triple_press_keys={"right cmd"},
         )
         recorder = SimpleNamespace(sample_rate=16000)
 
@@ -75,7 +75,7 @@ class DictationAppInitTests(unittest.TestCase):
         self.assertEqual(
             tracker_kwargs["key_modes"], {"right cmd": "restructure", "right shift": "answer"}
         )
-        self.assertEqual(tracker_kwargs["triple_press_raw_keys"], {"right cmd"})
+        self.assertEqual(tracker_kwargs["triple_press_keys"], {"right cmd"})
 
 
 class DictationAppOutputTests(unittest.TestCase):

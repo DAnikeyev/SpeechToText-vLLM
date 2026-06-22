@@ -46,11 +46,12 @@ def build_about_text() -> str:
 Windows dictation assistant with shared speech and OpenAI-compatible LLM pipeline.
 
 Hotkeys
-- {restructure_key}: single hold -> transcribe, clean with LLM, insert and copy to clipboard
+- {restructure_key}: single hold -> transcribe only, skip vLLM, insert and copy raw text
 - {restructure_key}: double-press then hold -> transcribe, clean with LLM, copy to clipboard
-- {restructure_key}: triple-press then hold -> transcribe only, skip vLLM, insert and copy raw text
+- {restructure_key}: triple-press then hold -> transcribe, clean with LLM, insert and copy to clipboard
 - {answer_key}: single hold -> transcribe, answer with vLLM, insert and copy to clipboard
 - {answer_key}: double-press then hold -> transcribe, answer with vLLM, copy to clipboard
+- Backspace: cancel queued or in-flight processing/output
 
 LLM defaults
 - Hosted default: OpenRouter at https://openrouter.ai/api/v1
@@ -61,7 +62,6 @@ LLM defaults
 Tips
 - The icon is green when active, yellow while processing (transcribing/LLM), and red when paused.
 - Open the system tray icon to change microphone, language, LLM server URL, or compatibility preset.
-- Press Backspace while processing to cancel the current analysis/output.
 - Text insertion pastes from the clipboard (Ctrl+V) for better editor compatibility.
 """
 

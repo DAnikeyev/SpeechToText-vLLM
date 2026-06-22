@@ -112,7 +112,7 @@ class DictationApp:
             first_press_max_seconds=config.first_press_max_seconds,
             backend_factory=platform_services.create_hotkey_backend,
             key_modes=dict(platform_services.key_modes),
-            triple_press_raw_keys=set(platform_services.triple_press_raw_keys),
+            triple_press_keys=set(platform_services.triple_press_keys),
         )
         self.worker = threading.Thread(target=self._worker_loop, daemon=True)
         self.llm_monitor = threading.Thread(target=self._llm_monitor_loop, daemon=True)

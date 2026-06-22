@@ -23,7 +23,7 @@ DEFAULT_KEY_MODES: dict[str, str] = {
     "right shift": "answer",
 }
 
-DEFAULT_TRIPLE_PRESS_RAW_KEYS = {"right ctrl"}
+DEFAULT_TRIPLE_PRESS_KEYS = {"right ctrl"}
 
 
 @dataclass
@@ -45,7 +45,7 @@ class DoublePressHotkeyTracker:
     on_cancel: Callable[[], None] | None = None
     backend_factory: HotkeyBackendFactory | None = None
     key_modes: dict[str, str] | None = None
-    triple_press_raw_keys: set[str] | None = None
+    triple_press_keys: set[str] | None = None
 
     _keys: dict[str, _KeyState] = field(default_factory=dict)
     _disabled_modes: set[str] = field(default_factory=set)
@@ -63,8 +63,8 @@ class DoublePressHotkeyTracker:
             self.backend_factory = get_platform_services().create_hotkey_backend
         if self.key_modes is None:
             self.key_modes = dict(DEFAULT_KEY_MODES)
-        if self.triple_press_raw_keys is None:
-            self.triple_press_raw_keys = set(DEFAULT_TRIPLE_PRESS_RAW_KEYS)
+        if self.triple_press_keys is None:
+            self.triple_press_keys = set(DEFAULT_TRIPLE_PRESS_KEYS)
 
         for key in self.key_modes or DEFAULT_KEY_MODES:
             if key not in self._keys:
@@ -203,8 +203,8 @@ class DoublePressHotkeyTracker:
     def _register_tap_locked(self, key: str, ks: _KeyState) -> None:
         ks.press_time = 0.0
         ks.tap_count += 1
-        raw_keys = self.triple_press_raw_keys or DEFAULT_TRIPLE_PRESS_RAW_KEYS
-        max_taps = 3 if key in raw_keys else 2
+        triple_press_keys = self.triple_press_keys or DEFAULT_TRIPLE_PRESS_KEYS
+        max_taps = 3 if key in triple_press_keys else 2
         if ks.tap_count >= max_taps:
             ks.phase = _Phase.IDLE
             ks.tap_count = 0
@@ -229,20 +229,20 @@ class DoublePressHotkeyTracker:
         timer.start()
 
     def _hold_delay_for_tap_count(self, key: str, tap_count: int) -> float:
-        raw_keys = self.triple_press_raw_keys or DEFAULT_TRIPLE_PRESS_RAW_KEYS
-        if tap_count == 1 and key not in raw_keys:
+        triple_press_keys = self.triple_press_keys or DEFAULT_TRIPLE_PRESS_KEYS
+        if tap_count == 1 and key not in triple_press_keys:
             return max(0.0, self.start_delay_seconds)
         return max(self.start_delay_seconds, self.first_press_max_seconds)
 
     def _resolve_hold_action(self, key: str, tap_count: int) -> tuple[str, str, bool] | None:
         key_modes = self.key_modes or DEFAULT_KEY_MODES
-        raw_keys = self.triple_press_raw_keys or DEFAULT_TRIPLE_PRESS_RAW_KEYS
+        triple_press_keys = self.triple_press_keys or DEFAULT_TRIPLE_PRESS_KEYS
         if tap_count == 0:
-            return (key_modes[key], "both", False)
+            return (key_modes[key], "both", key in triple_press_keys)
         if tap_count == 1:
             return (key_modes[key], "clipboard", False)
-        if tap_count == 2 and key in raw_keys:
-            return (key_modes[key], "both", True)
+        if tap_count == 2 and key in triple_press_keys:
+            return (key_modes[key], "both", False)
         return None
 
     def _start_recording_locked(self) -> tuple[str, str, bool] | None:

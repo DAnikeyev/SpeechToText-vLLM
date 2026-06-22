@@ -158,6 +158,15 @@ class TrayAboutTests(unittest.TestCase):
         self.assertIn("Windows dictation assistant", about)
         self.assertIn("Right Ctrl", about)
         self.assertIn("Right Shift", about)
+        self.assertIn(
+            "Right Ctrl: single hold -> transcribe only, skip vLLM, insert and copy raw text",
+            about,
+        )
+        self.assertIn(
+            "Right Ctrl: triple-press then hold -> transcribe, clean with LLM, insert and copy to clipboard",
+            about,
+        )
+        self.assertIn("Backspace: cancel queued or in-flight processing/output", about)
         self.assertIn("Ctrl+V", about)
         self.assertIn("OpenRouter", about)
         self.assertIn("openai/gpt-oss-120b:free", about)

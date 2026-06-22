@@ -46,7 +46,7 @@ hotkey gesture (hotkeys.py)
 ### Strengths to preserve
 - **Clean layering**: pure-ish modules (`audio`, `vad`, `stt`, `llm`, `config`, `hotkeys`) behind thin platform/IO shells.
 - **Type hints everywhere**; `from __future__ import annotations` consistently.
-- **Injection seams already exist**: `backend_factory`, `key_modes`, `triple_press_raw_keys` on the hotkey tracker; platform services via `get_platform_services()`. Tests lean on these.
+- **Injection seams already exist**: `backend_factory`, `key_modes`, `triple_press_keys` on the hotkey tracker; platform services via `get_platform_services()`. Tests lean on these.
 - **Graceful degradation**: LLM offline → raw Whisper transcript; insert fails → clipboard fallback; bad mic device → system default.
 - **Cancellation** via a monotonic generation counter (Backspace) — correct and well-tested.
 - **Atomic config writes** (`tempfile` + `os.replace` + `fsync`) — good.

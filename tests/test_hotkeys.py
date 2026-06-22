@@ -32,7 +32,7 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         services = SimpleNamespace(
             create_hotkey_backend=lambda: _FakeBackend(),
             key_modes={"right cmd": "restructure", "right shift": "answer"},
-            triple_press_raw_keys={"right cmd"},
+            triple_press_keys={"right cmd"},
         )
 
         with patch("app.hotkeys.get_platform_services", return_value=services):
@@ -43,7 +43,7 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
             )
 
         self.assertEqual(tracker.key_modes, {"right ctrl": "restructure", "right shift": "answer"})
-        self.assertEqual(tracker.triple_press_raw_keys, {"right ctrl"})
+        self.assertEqual(tracker.triple_press_keys, {"right ctrl"})
 
     def test_start_and_stop_use_injected_backend(self) -> None:
         backend = _FakeBackend()
@@ -129,7 +129,7 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         self.assertEqual(stops[0][2], "clipboard")
         self.assertFalse(stops[0][3])
 
-    def test_triple_press_right_ctrl_uses_raw_clipboard_mode(self) -> None:
+    def test_triple_press_right_ctrl_uses_clean_insert_mode(self) -> None:
         starts: list[tuple[str, str, bool]] = []
         stops: list[tuple[float, str, str, bool]] = []
         tracker = DoublePressHotkeyTracker(
@@ -149,15 +149,15 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         tracker._process("right ctrl", "down", t0 + 0.16)
         time.sleep(0.2)
 
-        self.assertEqual(starts, [("restructure", "both", True)])
+        self.assertEqual(starts, [("restructure", "both", False)])
 
         tracker._process("right ctrl", "up", t0 + 2.5)
         self.assertEqual(len(stops), 1)
         self.assertEqual(stops[0][1], "restructure")
         self.assertEqual(stops[0][2], "both")
-        self.assertTrue(stops[0][3])
+        self.assertFalse(stops[0][3])
 
-    def test_single_hold_starts_insert_recording(self) -> None:
+    def test_single_hold_starts_raw_insert_recording(self) -> None:
         starts: list[tuple[str, str, bool]] = []
         stops: list[tuple[float, str, str, bool]] = []
         tracker = DoublePressHotkeyTracker(
@@ -173,13 +173,13 @@ class DoublePressHotkeyTrackerTests(unittest.TestCase):
         tracker._process("right ctrl", "down", t0)
         time.sleep(0.2)
 
-        self.assertEqual(starts, [("restructure", "both", False)])
+        self.assertEqual(starts, [("restructure", "both", True)])
 
         tracker._process("right ctrl", "up", t0 + 2.2)
         self.assertEqual(len(stops), 1)
         self.assertEqual(stops[0][1], "restructure")
         self.assertEqual(stops[0][2], "both")
-        self.assertFalse(stops[0][3])
+        self.assertTrue(stops[0][3])
 
     def test_right_shift_uses_answer_mode(self) -> None:
         starts: list[tuple[str, str, bool]] = []

@@ -35,4 +35,4 @@ class PlatformServices:
     detect_input_language: LanguageDetect
     create_hotkey_backend: HotkeyBackendFactory
     key_modes: dict[str, str]
-    triple_press_raw_keys: set[str]
+    triple_press_keys: set[str]

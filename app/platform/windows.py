@@ -194,5 +194,5 @@ SERVICES = PlatformServices(
     detect_input_language=detect_input_language,
     create_hotkey_backend=create_hotkey_backend,
     key_modes={"right ctrl": "restructure", "right shift": "answer"},
-    triple_press_raw_keys={"right ctrl"},
+    triple_press_keys={"right ctrl"},
 )

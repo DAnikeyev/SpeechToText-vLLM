@@ -6,18 +6,21 @@ Windows dictation assistant. The app records audio, transcribes it locally with 
 
 | Key | Action |
 |---|---|
-| **Right Ctrl** (single hold) | Record → restructure/clean transcript → insert into active field and copy to clipboard |
+| **Right Ctrl** (single hold) | Record → transcribe only → insert into active field and copy raw transcript |
 | **Right Ctrl** (double-press then hold) | Record → restructure/clean transcript → copy to clipboard |
-| **Right Ctrl** (triple-press then hold) | Record → transcribe only → insert and copy raw transcript |
+| **Right Ctrl** (triple-press then hold) | Record → restructure/clean transcript → insert into active field and copy to clipboard |
 | **Right Shift** (single hold) | Record → answer/follow instructions → insert into active field and copy to clipboard |
 | **Right Shift** (double-press then hold) | Record → answer/follow instructions → copy to clipboard |
+| **Backspace** | Cancel queued or in-flight processing/output |
 
 Gesture rules:
 
 - **Single hold**: press and hold once; recording starts after the tap threshold passes and stops when you release.
 - **Double-press then hold**: tap once briefly, release, then press and hold on the second press.
-- **Triple-press then hold**: tap twice briefly, then hold on the third press to skip vLLM and emit raw Whisper output.
-- **Backspace** cancels the current processing/output operation.
+- **Triple-press then hold**: tap twice briefly, then hold on the third press to run the normal Right Ctrl cleanup path with insert + clipboard output.
+- **Backspace** cancels queued or in-flight processing/output.
+
+For release-by-release notes, see [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Tray UI
 
