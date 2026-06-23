@@ -23,6 +23,12 @@ _nv_cublas_d, _nv_cublas_b, _nv_cublas_h = collect_all("nvidia.cublas")
 _nv_rt_d, _nv_rt_b, _nv_rt_h = collect_all("nvidia.cuda_runtime")
 _nv_nvrtc_d, _nv_nvrtc_b, _nv_nvrtc_h = collect_all("nvidia.cuda_nvrtc")
 
+# httpx (HTTP client used by openai SDK) depends on certifi, httpcore, and h11,
+# all of which are lazy-imported inside function bodies. PyInstaller's static
+# analysis cannot discover them. collect_all ensures every submodule is bundled
+# and the hook-httpx.py in hooks/ collects certifi's cacert.pem data file.
+_httpx_datas, _httpx_binaries, _httpx_hiddenimports = collect_all("httpx")
+
 
 a = Analysis(
     [str(REPO_ROOT / 'app' / 'main.py')],
@@ -39,7 +45,8 @@ a = Analysis(
     + _ct2_datas
     + _nv_cublas_d
     + _nv_rt_d
-    + _nv_nvrtc_d,
+    + _nv_nvrtc_d
+    + _httpx_datas,
     hiddenimports=[
         'app',
         'app.main',
@@ -79,12 +86,37 @@ a = Analysis(
         'nvidia.cublas',
         'nvidia.cuda_runtime',
         'nvidia.cuda_nvrtc',
+        # openai SDK HTTP chain (lazy-imported submodules that
+        # PyInstaller would otherwise miss).
+        'openai',
+        'openai._types',
+        'openai._models',
+        'openai._streaming',
+        'openai._response',
+        'openai._base_client',
+        'openai._utils',
+        'openai._utils._json',
+        'certifi',
+        'httpcore',
+        'httpcore._sync',
+        'httpcore._sync.http11',
+        'httpcore._sync.connection',
+        'httpcore._sync.connection_pool',
+        'h11',
+        'jiter',
+        'pydantic_core',
+        'anyio',
+        'sniffio',
+        'distro',
+        'idna',
+        'tqdm',
     ]
     + _pyside_hiddenimports
     + _ct2_hiddenimports
     + _nv_cublas_h
     + _nv_rt_h
-    + _nv_nvrtc_h,
+    + _nv_nvrtc_h
+    + _httpx_hiddenimports,
     hookspath=[str(REPO_ROOT / 'hooks')],
     runtime_hooks=[],
     excludes=[],

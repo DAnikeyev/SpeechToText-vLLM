@@ -211,20 +211,34 @@ class TranscriptCleaner:
         kwargs["stream"] = True
         start = time.monotonic()
         stream = self.client.chat.completions.create(**kwargs)
+        self.logger.debug("LLM stream created (type=%s)", type(stream).__name__)
         with self._stream_lock:
             self._active_stream = stream
         parts: list[str] = []
+        chunk_count = 0
         try:
             for chunk in stream:
                 if is_cancelled is not None and is_cancelled():
                     self.logger.info("LLM stream cancelled by user")
                     return ""
+                chunk_count += 1
                 choices = getattr(chunk, "choices", None)
                 if not choices:
+                    if chunk_count <= 3:
+                        self.logger.debug(
+                            "LLM chunk %d has no choices (chunk=%s)", chunk_count, chunk
+                        )
                     continue
                 delta = getattr(choices[0].delta, "content", None)
                 if delta:
                     parts.append(delta)
+                if chunk_count <= 3:
+                    self.logger.debug(
+                        "LLM chunk %d: choices=%d delta=%s",
+                        chunk_count,
+                        len(choices),
+                        repr(delta)[:80] if delta else "None",
+                    )
         except Exception:
             # abort() closes the socket, which surfaces here as a connection
             # error. Treat a cancellation as a clean stop rather than a failure
@@ -238,6 +252,11 @@ class TranscriptCleaner:
                 self._active_stream = None
             with contextlib.suppress(Exception):
                 stream.close()
+        self.logger.debug(
+            "LLM stream finished: %d chunks, %d with content",
+            chunk_count,
+            len(parts),
+        )
         content = "".join(parts).strip()
         elapsed = time.monotonic() - start
         self.logger.info(
